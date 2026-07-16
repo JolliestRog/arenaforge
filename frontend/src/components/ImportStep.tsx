@@ -60,13 +60,22 @@ export default function ImportStep({ onNext }: Props) {
             Download the ArenaForge Exporter — a Windows app that reads your local Arena
             installation and outputs a collection file ready to paste below.
           </span>
+          <span className="smartscreen-note">
+            Windows will show a SmartScreen warning on first run. Click{' '}
+            <em>More info → Run anyway</em> — this is normal for open-source tools
+            without a $400/yr code-signing certificate.{' '}
+            <a href="https://github.com/JolliestRog/arenaforge" target="_blank" rel="noreferrer">
+              Source code on GitHub.
+            </a>
+          </span>
         </div>
         <a
           className="btn-download"
           href="/downloads/ArenaForge-MTGA-Exporter.exe"
           download
         >
-          Download Exporter (.exe)
+          Download Exporter
+          <span className="btn-download-sub">Windows .exe · ~14 MB</span>
         </a>
       </div>
 
