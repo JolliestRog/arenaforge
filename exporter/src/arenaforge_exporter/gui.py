@@ -28,12 +28,6 @@ STEP3_TEXT = (
     "Then go to {url} and paste the contents to build your deck."
 ).format(url=DECKFORGE_URL)
 
-SMARTSCREEN_TEXT = (
-    "Windows may show a SmartScreen warning when you first run this.\n"
-    "Click  More info → Run anyway.  This is normal for open-source tools\n"
-    "without a code-signing certificate. Source code: github.com/JolliestRog/arenaforge"
-)
-
 
 def _section(parent: tk.Widget, number: str, title: str, body: str) -> ttk.Frame:
     frame = ttk.Frame(parent)
@@ -115,18 +109,6 @@ class ExporterApp(tk.Tk):
             bg="#1a3a5c",
             fg="#7ab8e8",
         ).pack(side=tk.RIGHT, padx=20)
-
-        # ── SmartScreen notice ────────────────────────────────────────────────
-        notice = tk.Frame(self, bg="#fff8e1", pady=8)
-        notice.pack(fill=tk.X)
-        tk.Label(
-            notice,
-            text=SMARTSCREEN_TEXT,
-            font=("Segoe UI", 8),
-            bg="#fff8e1",
-            fg="#7a5800",
-            justify=tk.LEFT,
-        ).pack(padx=16, anchor=tk.W)
 
         # ── Scrollable body ───────────────────────────────────────────────────
         canvas = tk.Canvas(self, bg="#f5f6f8", highlightthickness=0)
