@@ -1,0 +1,23 @@
+services:
+  arenaforge:
+    image: nginx:alpine
+    container_name: arenaforge
+    restart: unless-stopped
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.public=true
+      - traefik.docker.network=compose_proxy
+      - traefik.http.routers.arenaforge.rule=Host(`deckforge.facey.page`)
+      - traefik.http.routers.arenaforge.entrypoints=websecure
+      - traefik.http.routers.arenaforge.tls.certresolver=le
+      - traefik.http.services.arenaforge.loadbalancer.server.port=80
+
+networks:
+  proxy:
+    name: compose_proxy
+    external: true

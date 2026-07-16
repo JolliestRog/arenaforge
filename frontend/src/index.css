@@ -1,0 +1,3 @@
+/* App.css owns all styling — index.css just sets the root container */
+body { margin: 0; }
+#root { min-height: 100vh; }
