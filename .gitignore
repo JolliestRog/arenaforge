@@ -3,4 +3,12 @@ frontend/node_modules/
 .env
 *.local
 backend/
-
+exporter/.venv/
+exporter/build/
+exporter/dist/
+exporter/*.spec.bak
+exporter/__pycache__/
+exporter/src/**/*.egg-info/
+exporter/.pytest_cache/
+exporter/**/__pycache__/
+exporter/**/*.pyc

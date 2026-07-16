@@ -53,6 +53,23 @@ export default function ImportStep({ onNext }: Props) {
         DeckForge will identify which cards you own and minimize wildcard costs.
       </p>
 
+      <div className="exporter-callout">
+        <div className="exporter-callout-text">
+          <strong>Need to export from Arena?</strong>
+          <span>
+            Download the ArenaForge Exporter — a Windows app that reads your local Arena
+            installation and outputs a collection file ready to paste below.
+          </span>
+        </div>
+        <a
+          className="btn-download"
+          href="/downloads/ArenaForge-MTGA-Exporter.exe"
+          download
+        >
+          Download Exporter (.exe)
+        </a>
+      </div>
+
       <div className="import-formats">
         <div className="format-pill">Arena export</div>
         <div className="format-pill">Plain card list</div>
