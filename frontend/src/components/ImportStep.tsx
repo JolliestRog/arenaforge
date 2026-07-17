@@ -6,160 +6,116 @@ interface Props {
   onNext: (collection: OwnedCard[]) => void;
 }
 
-const STORAGE_KEY = 'deckforge_collection';
+type ImportMode = 'landing' | 'paste' | 'done';
 
-const SAMPLE_COLLECTION = `2 Brainstorm
-2 Ponder
-2 Counterspell
-1 Force of Negation
-1 Vampiric Tutor
-2 Fatal Push
-2 Thoughtseize
-1 Sol Ring
-1 Arcane Signet
-2 Watery Grave
-2 Underground River
-2 Slither Blade
-2 Changeling Outcast
-1 Faerie Seer
-2 Lightning Greaves
-2 Swiftfoot Boots
-4 Island
-4 Swamp`;
+const STORAGE_KEY = 'deckforge_collection';
 
 function loadSaved(): { raw: string; cards: OwnedCard[] } | null {
   try {
     const s = localStorage.getItem(STORAGE_KEY);
-    if (!s) return null;
-    return JSON.parse(s);
-  } catch {
-    return null;
-  }
+    return s ? JSON.parse(s) : null;
+  } catch { return null; }
 }
 
 function saveSaved(raw: string, cards: OwnedCard[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ raw, cards }));
-  } catch {
-    // storage full or unavailable — silently ignore
-  }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ raw, cards })); } catch { /* ignore */ }
 }
 
 function clearSaved() {
   try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
 }
 
-export default function ImportStep({ onNext }: Props) {
-  const [raw, setRaw] = useState('');
-  const [errors, setErrors] = useState<string[]>([]);
-  const [parsed, setParsed] = useState<OwnedCard[] | null>(null);
-  const [hasSaved, setHasSaved] = useState(false);
+// ── Sub-views ─────────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    const saved = loadSaved();
-    if (saved) {
-      setRaw(saved.raw);
-      setParsed(saved.cards);
-      setHasSaved(true);
-    }
-  }, []);
-
-  function handleParse() {
-    const input = raw.trim() || SAMPLE_COLLECTION;
-    const result = parseCollection(input);
-    setErrors(result.errors);
-    if (result.cards.length > 0) {
-      setParsed(result.cards);
-      saveSaved(input, result.cards);
-      setHasSaved(true);
-    } else {
-      setParsed(null);
-    }
-  }
-
-  function handleContinue() {
-    if (parsed) onNext(parsed);
-  }
-
-  function handleSkip() {
-    onNext([]);
-  }
-
-  function handleClear() {
-    clearSaved();
-    setRaw('');
-    setParsed(null);
-    setErrors([]);
-    setHasSaved(false);
-  }
-
+function LandingView({ onHaveExport, onSkip }: { onHaveExport: () => void; onSkip: () => void }) {
   return (
-    <div className="step import-step">
-      <h2>Import Your Collection</h2>
-      <p className="step-desc">
-        Paste your MTG Arena collection export, a deck list, or a CSV with name and count columns.
-        DeckForge will identify which cards you own and minimize wildcard costs.
+    <div className="import-landing">
+      <h2>Import your MTG Arena collection</h2>
+      <p className="import-subtext">
+        See what your collection can already build. DeckForge analyzes your cards,
+        recommends commanders, and creates Arena Brawl decks around the wildcards
+        you are willing to spend.
       </p>
 
-      <div className="exporter-callout">
-        <div className="exporter-callout-text">
-          <strong>Need to export from Arena?</strong>
-          <span>
-            Download the ArenaForge Exporter — a Windows app that reads your local Arena
-            installation and outputs a collection file ready to paste below.
-          </span>
-          <span className="smartscreen-note">
-            Windows will show a SmartScreen warning on first run. Click{' '}
-            <em>More info → Run anyway</em> — this is normal for open-source tools
-            without a $400/yr code-signing certificate.{' '}
-            <a href="https://github.com/JolliestRog/arenaforge" target="_blank" rel="noreferrer">
-              Source code on GitHub.
-            </a>
-          </span>
+      <div className="onboarding-steps">
+        <div className="onboard-step">
+          <div className="onboard-num">1</div>
+          <div className="onboard-body">
+            <strong>Download the Arena Exporter</strong>
+            <span>A small Windows app that reads your local Arena installation.</span>
+          </div>
         </div>
-        <a
-          className="btn-download"
-          href="/downloads/ArenaForge-MTGA-Exporter.exe"
-          download
-        >
-          Download Exporter
-          <span className="btn-download-sub">Windows .exe · ~14 MB</span>
-        </a>
+        <div className="onboard-arrow">→</div>
+        <div className="onboard-step">
+          <div className="onboard-num">2</div>
+          <div className="onboard-body">
+            <strong>Run it to export your collection</strong>
+            <span>Produces a file with every card and copy you own.</span>
+          </div>
+        </div>
+        <div className="onboard-arrow">→</div>
+        <div className="onboard-step">
+          <div className="onboard-num">3</div>
+          <div className="onboard-body">
+            <strong>Import the file here</strong>
+            <span>DeckForge reads your ownership and optimizes around it.</span>
+          </div>
+        </div>
       </div>
 
+      <div className="landing-ctas">
+        <a className="btn-primary btn-download-hero" href="/downloads/ArenaForge-MTGA-Exporter.exe" download>
+          Download Arena Exporter
+          <span className="btn-sub">Windows · ~14 MB</span>
+        </a>
+        <button className="btn-ghost btn-have-export" onClick={onHaveExport}>
+          I already have an export →
+        </button>
+      </div>
+
+      <button className="btn-skip-link" onClick={onSkip}>
+        Skip — browse without a collection
+      </button>
+    </div>
+  );
+}
+
+function PasteView({
+  raw,
+  setRaw,
+  errors,
+  onParse,
+  onBack,
+}: {
+  raw: string;
+  setRaw: (v: string) => void;
+  errors: string[];
+  onParse: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <div className="import-paste">
+      <button className="btn-back-link" onClick={onBack}>← Back</button>
+      <h2>Import your collection</h2>
+
       <div className="import-formats">
-        <div className="format-pill">Arena export</div>
+        <div className="format-pill active">Paste Arena export</div>
         <div className="format-pill">Plain card list</div>
         <div className="format-pill">CSV (name, count)</div>
       </div>
 
-      {hasSaved && !raw && (
-        <div className="saved-notice">
-          Collection loaded from your last session.
-        </div>
-      )}
+      <p className="import-subtext">
+        In MTG Arena, go to <strong>Decks → Export Collection</strong> (or use the
+        Arena Exporter), then paste the result below.
+      </p>
 
       <textarea
         className="collection-input"
         placeholder={`Paste your collection here, e.g.\n\n1 Counterspell (TSR) 73\n2 Brainstorm\n\nOr leave blank to use a sample collection.`}
         rows={12}
         value={raw}
-        onChange={e => { setRaw(e.target.value); setParsed(null); setErrors([]); }}
+        onChange={e => setRaw(e.target.value)}
       />
-
-      <div className="import-actions">
-        <button className="btn-primary" onClick={handleParse}>
-          Parse Collection
-        </button>
-        <button className="btn-ghost" onClick={handleSkip}>
-          Skip (no collection)
-        </button>
-        {hasSaved && (
-          <button className="btn-ghost btn-clear" onClick={handleClear}>
-            Clear saved collection
-          </button>
-        )}
-      </div>
 
       {errors.length > 0 && (
         <div className="parse-errors">
@@ -168,26 +124,126 @@ export default function ImportStep({ onNext }: Props) {
         </div>
       )}
 
-      {parsed && (
-        <div className="parse-result">
-          <div className="parse-summary">
-            Parsed <strong>{parsed.length}</strong> unique cards
-            ({parsed.reduce((s, c) => s + c.count, 0)} total copies).
-            <span className="saved-tag">Saved in browser</span>
-          </div>
-          <div className="parsed-preview">
-            {parsed.slice(0, 8).map(c => (
-              <span key={c.name} className="card-pill">
-                {c.count}x {c.name}
-              </span>
-            ))}
-            {parsed.length > 8 && <span className="card-pill muted">+{parsed.length - 8} more</span>}
-          </div>
-          <button className="btn-primary" onClick={handleContinue}>
-            Continue to Build Options
-          </button>
-        </div>
-      )}
+      <div className="import-actions">
+        <button className="btn-primary" onClick={onParse}>Parse Collection</button>
+      </div>
     </div>
+  );
+}
+
+function DoneView({
+  parsed,
+  onContinue,
+  onReimport,
+}: {
+  parsed: OwnedCard[];
+  onContinue: () => void;
+  onReimport: () => void;
+}) {
+  const totalCopies = parsed.reduce((s, c) => s + c.count, 0);
+  const now = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+  return (
+    <div className="import-done">
+      <h2>Collection imported</h2>
+
+      <div className="collection-summary">
+        <div className="summary-stat">
+          <span className="summary-num">{parsed.length.toLocaleString()}</span>
+          <span className="summary-label">Unique cards</span>
+        </div>
+        <div className="summary-stat">
+          <span className="summary-num">{totalCopies.toLocaleString()}</span>
+          <span className="summary-label">Total copies</span>
+        </div>
+        <div className="summary-stat">
+          <span className="summary-num">{now}</span>
+          <span className="summary-label">Imported</span>
+        </div>
+        <div className="summary-stat">
+          <span className="summary-num saved-tag-inline">Saved locally</span>
+          <span className="summary-label">Storage</span>
+        </div>
+      </div>
+
+      <div className="done-ctas">
+        <button className="btn-primary btn-analyze" onClick={onContinue}>
+          Analyze my collection
+        </button>
+        <button className="btn-ghost" onClick={onReimport}>
+          Re-import collection
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+
+export default function ImportStep({ onNext }: Props) {
+  const [mode, setMode] = useState<ImportMode>('landing');
+  const [raw, setRaw] = useState('');
+  const [errors, setErrors] = useState<string[]>([]);
+  const [parsed, setParsed] = useState<OwnedCard[] | null>(null);
+
+  useEffect(() => {
+    const saved = loadSaved();
+    if (saved) {
+      setRaw(saved.raw);
+      setParsed(saved.cards);
+      setMode('done');
+    }
+  }, []);
+
+  function handleParse() {
+    const result = parseCollection(raw.trim() || '');
+    setErrors(result.errors);
+    if (result.cards.length > 0) {
+      setParsed(result.cards);
+      saveSaved(raw, result.cards);
+      setMode('done');
+    }
+  }
+
+  function handleReimport() {
+    clearSaved();
+    setRaw('');
+    setParsed(null);
+    setErrors([]);
+    setMode('paste');
+  }
+
+  function handleRawChange(v: string) {
+    setRaw(v);
+    setErrors([]);
+  }
+
+  if (mode === 'landing') {
+    return (
+      <LandingView
+        onHaveExport={() => setMode('paste')}
+        onSkip={() => onNext([])}
+      />
+    );
+  }
+
+  if (mode === 'paste') {
+    return (
+      <PasteView
+        raw={raw}
+        setRaw={handleRawChange}
+        errors={errors}
+        onParse={handleParse}
+        onBack={() => setMode('landing')}
+      />
+    );
+  }
+
+  return (
+    <DoneView
+      parsed={parsed!}
+      onContinue={() => onNext(parsed!)}
+      onReimport={handleReimport}
+    />
   );
 }

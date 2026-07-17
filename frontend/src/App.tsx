@@ -9,6 +9,33 @@ import './App.css';
 
 type Step = 'import' | 'build' | 'compare' | 'deck';
 
+const STEPS: { key: Step; label: string }[] = [
+  { key: 'import',  label: 'Import' },
+  { key: 'build',   label: 'Commander & Budget' },
+  { key: 'compare', label: 'Compare Builds' },
+  { key: 'deck',    label: 'Deck & Export' },
+];
+
+function StepBar({ current }: { current: Step }) {
+  const currentIdx = STEPS.findIndex(s => s.key === current);
+  return (
+    <nav className="step-bar" aria-label="Progress">
+      {STEPS.map((s, i) => {
+        const state = i < currentIdx ? 'done' : i === currentIdx ? 'active' : 'upcoming';
+        return (
+          <div key={s.key} className={`step-pip step-pip--${state}`}>
+            <div className="step-pip-dot">
+              {state === 'done' ? '✓' : i + 1}
+            </div>
+            <span className="step-pip-label">{s.label}</span>
+            {i < STEPS.length - 1 && <div className="step-pip-line" />}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
 function App() {
   const [step, setStep] = useState<Step>('import');
   const [request, setRequest] = useState<BuildRequest | null>(null);
@@ -77,6 +104,8 @@ function App() {
           </div>
         )}
       </header>
+
+      <StepBar current={step} />
 
       <main className="app-main">
         {error && (
