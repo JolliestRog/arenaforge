@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { BuildRequest, WildcardBudget } from '../lib/types';
 import { PROFILES, getProfilesForCommander } from '../lib/profiles';
-import { fetchCommanders, type Commander } from '../lib/api';
+import { fetchCommanders, fetchCommanderStrategies, type Commander, type CommanderStrategy } from '../lib/api';
 
 interface Props {
   initialRequest: BuildRequest;
@@ -150,13 +150,37 @@ export default function BuildStep({ initialRequest, onGenerate, onBack, loading 
   const [commander, setCommander] = useState(initialRequest.commander);
   const [profile, setProfile] = useState(initialRequest.profile);
   const [budget, setBudget] = useState<WildcardBudget>(initialRequest.wildcardBudget);
+  const [dbStrategies, setDbStrategies] = useState<CommanderStrategy[]>([]);
+  const [loadingStrategies, setLoadingStrategies] = useState(false);
 
-  const availableProfiles = getProfilesForCommander(commander);
+  // Fetch strategies from DB when commander changes
+  useEffect(() => {
+    if (!commander) { setDbStrategies([]); return; }
+    setLoadingStrategies(true);
+    fetchCommanderStrategies(commander)
+      .then(strats => {
+        setDbStrategies(strats);
+        if (strats.length > 0) {
+          // Prefer the incoming profile if it matches a DB strategy, else pick the best one
+          const preferred = strats.find(s => s.id === initialRequest.profile);
+          setProfile(preferred ? preferred.id : strats[0].id);
+        } else {
+          // No DB strategies — fall back to first legacy profile for this commander
+          const legacy = getProfilesForCommander(commander);
+          if (legacy.length > 0) setProfile(legacy[0].id);
+        }
+      })
+      .finally(() => setLoadingStrategies(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commander]);
+
+  const legacyProfiles = getProfilesForCommander(commander);
+  const useDbStrategies = dbStrategies.length > 0;
 
   function handleCommanderChange(name: string) {
     setCommander(name);
-    const profiles = getProfilesForCommander(name);
-    if (profiles.length > 0) setProfile(profiles[0].id);
+    // Profile reset is handled by the useEffect; clear DB strategies optimistically
+    setDbStrategies([]);
   }
 
   function updateBudget(key: keyof WildcardBudget, value: number) {
@@ -168,6 +192,7 @@ export default function BuildStep({ initialRequest, onGenerate, onBack, loading 
   }
 
   const selectedProfile = PROFILES[profile];
+  const selectedDbStrategy = dbStrategies.find(s => s.id === profile);
 
   return (
     <div className="step build-step">
@@ -185,30 +210,55 @@ export default function BuildStep({ initialRequest, onGenerate, onBack, loading 
         </section>
 
         <section className="form-section">
-          <h3>Strategic Profile</h3>
-          {availableProfiles.length === 0 ? (
-            <p className="muted">No profiles available for this commander.</p>
+          <h3>Strategy</h3>
+          {loadingStrategies ? (
+            <p className="muted">Loading strategies…</p>
+          ) : useDbStrategies ? (
+            <>
+              <div className="profile-list">
+                {dbStrategies.map(s => (
+                  <button
+                    key={s.id}
+                    className={`profile-card ${profile === s.id ? 'selected' : ''}`}
+                    onClick={() => setProfile(s.id)}
+                  >
+                    <span className="profile-name">{s.display_name}</span>
+                    <span className="profile-desc">{s.description || s.status}</span>
+                    <span className="profile-fit">fit {Math.round(s.fit_score * 100)}%</span>
+                  </button>
+                ))}
+              </div>
+              {selectedDbStrategy && (
+                <div className="profile-targets">
+                  Strategy from knowledge base · fit score {Math.round(selectedDbStrategy.fit_score * 100)}%
+                </div>
+              )}
+            </>
+          ) : legacyProfiles.length === 0 ? (
+            <p className="muted">No strategies available for this commander.</p>
           ) : (
-            <div className="profile-list">
-              {availableProfiles.map(p => (
-                <button
-                  key={p.id}
-                  className={`profile-card ${profile === p.id ? 'selected' : ''}`}
-                  onClick={() => setProfile(p.id)}
-                >
-                  <span className="profile-name">{p.displayName}</span>
-                  <span className="profile-desc">{p.description}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          {selectedProfile && (
-            <div className="profile-targets">
-              <strong>Role targets:</strong>{' '}
-              {Object.entries(selectedProfile.roleTargets)
-                .map(([role, t]) => `${role.replace(/_/g, ' ')} ≥${t.min}`)
-                .join(' · ')}
-            </div>
+            <>
+              <div className="profile-list">
+                {legacyProfiles.map(p => (
+                  <button
+                    key={p.id}
+                    className={`profile-card ${profile === p.id ? 'selected' : ''}`}
+                    onClick={() => setProfile(p.id)}
+                  >
+                    <span className="profile-name">{p.displayName}</span>
+                    <span className="profile-desc">{p.description}</span>
+                  </button>
+                ))}
+              </div>
+              {selectedProfile && (
+                <div className="profile-targets">
+                  <strong>Role targets:</strong>{' '}
+                  {Object.entries(selectedProfile.roleTargets)
+                    .map(([role, t]) => `${role.replace(/_/g, ' ')} ≥${t.min}`)
+                    .join(' · ')}
+                </div>
+              )}
+            </>
           )}
         </section>
 

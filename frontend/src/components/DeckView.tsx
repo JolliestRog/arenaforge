@@ -103,7 +103,7 @@ export default function DeckView({ variant, onBack }: Props) {
 
       <div className="deck-header">
         <div>
-          <h2>{variant.label}</h2>
+          <p className="deck-slug">{variant.commander.name} — {variant.strategyName} — {variant.label}</p>
           <p className="deck-commander">Commander: <strong>{variant.commander.name}</strong></p>
         </div>
         <div className="deck-quick-stats">

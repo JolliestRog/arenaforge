@@ -57,6 +57,16 @@ function App() {
     setStep('analyze');
   }
 
+  function handleSkip() {
+    setRequest({
+      collection: [],
+      commander: 'A-Satoru Umezawa',
+      profile: 'satoru_toolbox',
+      wildcardBudget: { common: Infinity, uncommon: Infinity, rare: Infinity, mythic: Infinity },
+    });
+    setStep('build');
+  }
+
   function handleSelectCommander(name: string, profile: string) {
     setRequest(r => r ? { ...r, commander: name, profile } : {
       collection: [],
@@ -72,9 +82,18 @@ function App() {
     setLoading(true);
     try {
       const result = await buildDeck(req.collection, req.commander, req.profile, req.wildcardBudget);
-      setRequest(req);
-      setVariants(result);
-      setStep('compare');
+      const feasible = result.filter(v => !v.infeasible);
+      if (feasible.length === 0) {
+        setError(
+          `No valid deck found for ${req.commander} within your wildcard budget. ` +
+          `Try increasing your budget or choosing a different commander or strategy.`
+        );
+        setStep('build');
+      } else {
+        setRequest(req);
+        setVariants(feasible);
+        setStep('compare');
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -104,20 +123,12 @@ function App() {
         <img src="/dragon-right.png" alt="" />
       </div>
 
-      <header className={`app-header ${step === 'import' ? 'header-hero' : 'header-compact'}`}>
-        <img
-          src="/banner.png"
-          alt="DeckForge — Arena brawl and commander planning tool"
-          className="header-banner"
-        />
+      <header className="app-header">
+        <span className="header-wordmark">DeckForge</span>
         {step !== 'import' && (
-          <div className="header-nav">
-            <button className="btn-ghost" onClick={reset}>Start Over</button>
-          </div>
+          <button className="btn-ghost header-reset" onClick={reset}>Start Over</button>
         )}
       </header>
-
-      <StepBar current={step} />
 
       <main className="app-main">
         {error && (
@@ -127,7 +138,7 @@ function App() {
           </div>
         )}
 
-        {step === 'import' && <ImportStep onNext={handleImport} />}
+        {step === 'import' && <ImportStep onNext={handleImport} onSkip={handleSkip} />}
 
         {step === 'analyze' && request && (
           <AnalyzeStep
@@ -172,6 +183,8 @@ function App() {
           <a href="/support.html">Support the project ☕</a>
         </p>
       </footer>
+
+      <StepBar current={step} />
     </div>
   );
 }

@@ -73,6 +73,7 @@ export interface DeckVariant {
   variantKey: 'performance' | 'wildcard' | 'consistency';
   label: string;
   description: string;
+  strategyName: string;
   commander: CardData;
   cards: DeckCard[];
   roleCounts: Record<string, number>;

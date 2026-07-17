@@ -10,11 +10,15 @@ from pydantic import BaseModel
 from db import get_db
 from solver.roles import infer_roles
 from solver.profiles import PROFILES
+import strategy_db
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
 COLOR_NAMES = {"W": "White", "U": "Blue", "B": "Black", "R": "Red", "G": "Green"}
 GENERIC_PROFILE_IDS = {"tempo", "control", "midrange", "value"}
+
+# Top-N strategy cards used to measure collection coverage
+COVERAGE_CARD_LIMIT = 60
 
 
 # ── Request / response models ──────────────────────────────────────────────────
@@ -72,7 +76,7 @@ def _color_strength(owned_cards: list[dict]) -> list[ColorStrength]:
         ci = json.loads(c["color_identity"])
         for color in ci:
             counts[color] += 1
-            if c["rarity"] == "rare":   rares[color] += 1
+            if c["rarity"] == "rare":     rares[color] += 1
             elif c["rarity"] == "mythic": mythics[color] += 1
     return [
         ColorStrength(color=col, label=COLOR_NAMES[col],
@@ -94,7 +98,7 @@ def _type_distribution(owned_cards: list[dict]) -> dict[str, int]:
         elif "Enchantment" in tl:     dist["Enchantment"] += 1
         elif "Artifact" in tl:        dist["Artifact"] += 1
         elif "Planeswalker" in tl:    dist["Planeswalker"] += 1
-        else:                         dist["Other"] += 1
+        else:                          dist["Other"] += 1
     return dict(dist)
 
 
@@ -136,7 +140,6 @@ def _summary(color_strength: list[ColorStrength], role_counts: dict[str, int], s
 
 
 def _build_ci_pools(all_cards: list[dict]) -> dict[frozenset, list[dict]]:
-    """Pre-build a pool for every possible color identity subset (32 total)."""
     pools: dict[frozenset, list[dict]] = {}
     for r in range(6):
         for combo in combinations("WUBRG", r):
@@ -148,32 +151,110 @@ def _build_ci_pools(all_cards: list[dict]) -> dict[frozenset, list[dict]]:
     return pools
 
 
+# ── Strategy DB scoring ────────────────────────────────────────────────────────
+
+def _fetch_strategy_scores(
+    candidate_names: list[str],
+    owned_set: set[str],
+    s_conn,
+) -> dict[str, dict]:
+    """
+    For each candidate commander, fetch their best recommended/viable strategy
+    and measure what fraction of the top COVERAGE_CARD_LIMIT strategy cards
+    the user owns.
+
+    Returns {commander_name: {strategy_id, strategy_name, intrinsic_fit,
+                               collection_coverage, key_owned, key_missing}}
+    """
+    if not candidate_names:
+        return {}
+
+    placeholders = ",".join("?" * len(candidate_names))
+    rows = s_conn.execute(
+        f"""
+        SELECT c.name       AS commander_name,
+               cs.commander_oracle_id,
+               cs.strategy_template_id,
+               cs.fit_score,
+               cs.status,
+               st.display_name AS strategy_name
+        FROM commander_strategies cs
+        JOIN cards c  ON c.oracle_id  = cs.commander_oracle_id
+        JOIN strategy_templates st ON st.id = cs.strategy_template_id
+        WHERE c.name IN ({placeholders})
+          AND cs.status IN ('recommended', 'viable', 'experimental')
+        ORDER BY c.name, cs.fit_score DESC
+        """,
+        candidate_names,
+    ).fetchall()
+
+    # Take only the best strategy per commander
+    best: dict[str, dict] = {}
+    for row in rows:
+        name = row["commander_name"]
+        if name not in best:
+            best[name] = dict(row)
+
+    result: dict[str, dict] = {}
+    for cmdr_name, strat in best.items():
+        card_rows = s_conn.execute(
+            """
+            SELECT cc.name AS card_name, sc.card_weight
+            FROM commander_strategy_cards sc
+            JOIN cards cc ON cc.oracle_id = sc.card_oracle_id
+            WHERE sc.commander_oracle_id = ?
+              AND sc.strategy_template_id = ?
+              AND cc.is_land = 0
+            ORDER BY sc.card_weight DESC
+            LIMIT ?
+            """,
+            (strat["commander_oracle_id"], strat["strategy_template_id"], COVERAGE_CARD_LIMIT),
+        ).fetchall()
+
+        top_cards = [r["card_name"] for r in card_rows]
+        key_owned   = [n for n in top_cards if n in owned_set]
+        key_missing = [n for n in top_cards if n not in owned_set]
+        coverage = len(key_owned) / max(len(top_cards), 1)
+
+        result[cmdr_name] = {
+            "strategy_id":          strat["strategy_template_id"],
+            "strategy_name":        strat["strategy_name"],
+            "intrinsic_fit":        strat["fit_score"],
+            "collection_coverage":  coverage,
+            "key_owned":            key_owned[:5],
+            "key_missing":          key_missing[:5],
+        }
+
+    return result
+
+
+# ── Commander scoring ──────────────────────────────────────────────────────────
+
 def _score_commander(
     cmdr: dict,
     ci_pools: dict[frozenset, list[dict]],
     owned_set: set[str],
     roles_cache: dict[str, list[str]],
+    strategy_data: dict | None,
 ) -> CommanderRecommendation | None:
     ci_key = frozenset(json.loads(cmdr["color_identity"]))
     pool = [c for c in ci_pools[ci_key] if c["name"] != cmdr["name"]]
     if len(pool) < 50:
         return None
 
-    # Pick best profile
-    specific = [p for p in PROFILES.values()
-                if p.commander == cmdr["name"] and p.id not in GENERIC_PROFILE_IDS]
-    profile = specific[0] if specific else PROFILES["midrange"]
-
     owned_pool = [c for c in pool if c["name"] in owned_set]
     owned_pct  = 100 * len(owned_pool) / len(pool)
 
-    # Role counts from owned cards
     owned_role_counts: dict[str, int] = defaultdict(int)
     for c in owned_pool:
         for role in roles_cache[c["name"]]:
             owned_role_counts[role] += 1
 
-    # Scoring
+    # Always compute legacy score as a floor
+    specific = [p for p in PROFILES.values()
+                if p.commander == cmdr["name"] and p.id not in GENERIC_PROFILE_IDS]
+    profile = specific[0] if specific else PROFILES["midrange"]
+
     role_score = 0.0
     coverage_score = 0.0
     for role, target in profile.role_targets.items():
@@ -184,26 +265,51 @@ def _score_commander(
         elif count >= target.min:     coverage_score += 1
 
     breadth_score = owned_pct * 0.3
-    high_rarity = sum(1 for c in owned_pool
-                      if c["rarity"] in ("rare", "mythic") and not c["is_land"])
+    high_rarity = sum(1 for c in owned_pool if c["rarity"] in ("rare", "mythic") and not c["is_land"])
     rarity_score = min(high_rarity * 0.5, 15.0)
-    total = min(role_score * 8 + coverage_score * 4 + breadth_score + rarity_score, 100.0)
+    legacy_score = min(role_score * 8 + coverage_score * 4 + breadth_score + rarity_score, 60.0)
 
-    # Key owned / missing
+    if strategy_data:
+        # Strategy-DB path: 70% oracle-text alignment, 30% collection coverage.
+        # Take max(strategy_score, legacy_score) so the DB never hurts a commander's ranking.
+        intrinsic  = strategy_data["intrinsic_fit"]
+        coverage   = strategy_data["collection_coverage"]
+        strat_score = min((0.70 * intrinsic + 0.30 * coverage) * 100, 100.0)
+        total = max(strat_score, legacy_score)
+
+        return CommanderRecommendation(
+            name=cmdr["name"],
+            color_identity=sorted(json.loads(cmdr["color_identity"])),
+            cmc=cmdr["cmc"],
+            rarity=cmdr["rarity"],
+            type_line=cmdr["type_line"],
+            owned=cmdr["name"] in owned_set,
+            profile_id=strategy_data["strategy_id"],
+            profile_name=strategy_data["strategy_name"],
+            collection_fit=round(total, 1),
+            owned_pct=round(owned_pct, 1),
+            owned_pool=len(owned_pool),
+            total_pool=len(pool),
+            role_coverage=dict(owned_role_counts),
+            score_breakdown={
+                "strategy_alignment":  round(intrinsic * 70, 1),
+                "collection_coverage": round(coverage * 30, 1),
+                "rare_mythic_support": round(rarity_score, 1),
+            },
+            key_owned=strategy_data["key_owned"],
+            key_missing=strategy_data["key_missing"],
+        )
+
+    # Legacy-only path: no strategy DB data for this commander
     def card_weight(c: dict) -> float:
         return sum(profile.role_weights.get(r, 0) for r in roles_cache[c["name"]])
 
-    scored_owned = sorted(
-        [c for c in owned_pool if not c["is_land"] and card_weight(c) > 0],
-        key=card_weight, reverse=True,
-    )
-    key_owned = [c["name"] for c in scored_owned[:5]]
-
-    scored_missing = sorted(
-        [c for c in pool if c["name"] not in owned_set and not c["is_land"] and card_weight(c) > 0],
-        key=card_weight, reverse=True,
-    )
-    key_missing = [c["name"] for c in scored_missing[:5]]
+    key_owned = [c["name"] for c in
+                 sorted([c for c in owned_pool if not c["is_land"] and card_weight(c) > 0],
+                        key=card_weight, reverse=True)[:5]]
+    key_missing = [c["name"] for c in
+                   sorted([c for c in pool if c["name"] not in owned_set and not c["is_land"] and card_weight(c) > 0],
+                          key=card_weight, reverse=True)[:5]]
 
     return CommanderRecommendation(
         name=cmdr["name"],
@@ -214,15 +320,15 @@ def _score_commander(
         owned=cmdr["name"] in owned_set,
         profile_id=profile.id,
         profile_name=profile.display_name,
-        collection_fit=round(total, 1),
+        collection_fit=round(legacy_score, 1),
         owned_pct=round(owned_pct, 1),
         owned_pool=len(owned_pool),
         total_pool=len(pool),
         role_coverage=dict(owned_role_counts),
         score_breakdown={
-            "role_coverage":      round(role_score * 8, 1),
-            "target_completion":  round(coverage_score * 4, 1),
-            "collection_breadth": round(breadth_score, 1),
+            "role_coverage":       round(role_score * 8, 1),
+            "target_completion":   round(coverage_score * 4, 1),
+            "collection_breadth":  round(breadth_score, 1),
             "rare_mythic_support": round(rarity_score, 1),
         },
         key_owned=key_owned,
@@ -242,7 +348,6 @@ def analyze(collection: list[OwnedCard]):
         all_rows = conn.execute("SELECT * FROM cards ORDER BY name").fetchall()
     all_cards = [dict(r) for r in all_rows]
 
-    # Pre-compute roles once
     roles_cache: dict[str, list[str]] = {c["name"]: infer_roles(c) for c in all_cards}
 
     owned_cards = [c for c in all_cards if c["name"] in owned_set]
@@ -254,35 +359,41 @@ def analyze(collection: list[OwnedCard]):
         reverse=True,
     )
 
-    type_dist  = _type_distribution(owned_cards)
+    type_dist       = _type_distribution(owned_cards)
     role_counts_all = _role_counts(owned_cards, roles_cache)
-    summary = _summary(color_strength, role_counts_all, strongest)
+    summary         = _summary(color_strength, role_counts_all, strongest)
 
-    # Build pools once for all 32 CI combos
     ci_pools = _build_ci_pools(all_cards)
 
-    # Pre-filter: score only commanders where owned_pool >= 30
-    # (fast pass using pre-built pools + owned_set hash lookup)
     commanders = [c for c in all_cards if c["is_commander"]]
     candidates = []
     for cmdr in commanders:
         ci_key = frozenset(json.loads(cmdr["color_identity"]))
-        pool = ci_pools.get(ci_key, [])
+        pool   = ci_pools.get(ci_key, [])
         owned_count = sum(1 for c in pool if c["name"] in owned_set and c["name"] != cmdr["name"])
         candidates.append((owned_count, cmdr))
 
-    # Score top 300 by owned count, owned commanders always included
-    owned_cmdrs = {name for name, _ in [(c["name"], c) for c in commanders] if name in owned_set}
     candidates.sort(key=lambda x: (-(1 if x[1]["name"] in owned_set else 0), -x[0]))
     top_candidates = candidates[:300]
 
+    # Batch-fetch strategy scores for all candidates
+    candidate_names = [cmdr["name"] for _, cmdr in top_candidates]
+    with strategy_db.get_strategy_db() as s_conn:
+        strategy_scores = _fetch_strategy_scores(candidate_names, owned_set, s_conn) if s_conn else {}
+
     recs = []
     for _, cmdr in top_candidates:
-        rec = _score_commander(cmdr, ci_pools, owned_set, roles_cache)
+        rec = _score_commander(
+            cmdr, ci_pools, owned_set, roles_cache,
+            strategy_scores.get(cmdr["name"]),
+        )
         if rec:
             recs.append(rec)
 
-    recs.sort(key=lambda r: (-(20 if r.owned else 0) - r.collection_fit))
+    # Sort by fit score only; split into two pools of up to 10 each
+    recs.sort(key=lambda r: -(r.collection_fit + r.owned_pct * 0.01))
+    owned_recs   = [r for r in recs if r.owned][:10]
+    unowned_recs = [r for r in recs if not r.owned][:10]
 
     return AnalysisResult(
         total_unique=total_unique,
@@ -292,5 +403,5 @@ def analyze(collection: list[OwnedCard]):
         role_counts=role_counts_all,
         strongest_colors=list(strongest[:3]),
         summary=summary,
-        recommendations=recs[:20],
+        recommendations=owned_recs + unowned_recs,
     )

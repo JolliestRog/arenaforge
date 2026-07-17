@@ -359,6 +359,7 @@ export function generateDeck(request: BuildRequest): DeckVariant[] {
       variantKey: vd.key,
       label: vd.label,
       description: vd.description,
+      strategyName: '',
       commander: commanderCard,
       cards,
       roleCounts: roleCounts(cards),

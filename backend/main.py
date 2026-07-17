@@ -4,14 +4,17 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import db
+import strategy_db
 from routers import analyze, build, cards, commanders
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init()
+    strategy_db.init()
     yield
     db.close()
+    strategy_db.close()
 
 
 app = FastAPI(

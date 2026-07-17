@@ -50,15 +50,20 @@ def _score_card(
     profile: Profile,
     owned: bool,
     variant: Variant,
+    strategy_weight: float = 0.0,
 ) -> float:
     score = 0.0
 
-    # Role weights
-    for role in roles:
-        score += profile.role_weights.get(role, 0) * 10
-
-    # Synergy bonus
-    score += synergy_score(roles, profile.synergy_tag)
+    if strategy_weight > 0:
+        # Strategy DB path: weight is the primary signal (scaled 0–280)
+        score = strategy_weight * 400
+    else:
+        # Legacy path: role-weight scoring
+        for role in roles:
+            score += profile.role_weights.get(role, 0) * 10
+        score += synergy_score(roles, profile.synergy_tag)
+        if strategy_weight == 0 and not card["is_land"]:
+            score *= 0.4  # slight penalty for cards the strategy DB doesn't know about
 
     # Ownership
     if owned:
@@ -68,8 +73,8 @@ def _score_card(
         if wc:
             score -= WC_VALUES[wc] * (3 if variant == "wildcard" else 1)
 
-    # Yuriko high-MV bonus
-    if profile.synergy_tag == "yuriko" and card["cmc"] >= 7:
+    # Yuriko high-MV bonus (legacy only)
+    if not strategy_weight and profile.synergy_tag == "yuriko" and card["cmc"] >= 7:
         score += 20
 
     # Consistency: penalize high-CMC, reward low-CMC
@@ -152,7 +157,9 @@ def build_variant(
     wildcard_budget: dict[str, int] | None,  # None = infinite
     variant: Variant,
     time_limit_s: float = 5.0,
+    strategy_weights: dict[str, float] | None = None,
 ) -> BuildResult:
+    sw = strategy_weights or {}
     # Attach roles and scores to each candidate
     annotated: list[tuple[dict, list[str], bool, float]] = []
     for card in candidates:
@@ -160,7 +167,7 @@ def build_variant(
             continue
         roles = infer_roles(card)
         owned = card["name"] in owned_set
-        score = _score_card(card, roles, profile, owned, variant)
+        score = _score_card(card, roles, profile, owned, variant, sw.get(card["name"], 0.0))
         annotated.append((card, roles, owned, score))
 
     # Cap the pool size so CP-SAT remains tractable for large color identities.
@@ -195,14 +202,15 @@ def build_variant(
         if len(role_vars) >= rt.min:
             model.add(sum(role_vars) >= rt.min)
 
-    # Hard: wildcard budget per rarity (wildcard variant only)
-    if variant == "wildcard" and wildcard_budget:
+    # Hard: wildcard budget per rarity (all variants)
+    if wildcard_budget:
         for rarity, budget in wildcard_budget.items():
             if budget >= 9999:
                 continue
             unowned_rarity = [
                 x[i] for i, (c, _, owned, _) in enumerate(annotated)
-                if not owned and c["rarity"] == rarity and not c["is_land"]
+                if not owned and c["rarity"] == rarity
+                and not (c["is_land"] and c["rarity"] == "common")
             ]
             if unowned_rarity:
                 model.add(sum(unowned_rarity) <= budget)
@@ -217,42 +225,31 @@ def build_variant(
     status = solver.solve(model)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        # Retry without role minimums (wildcard variant with tight budget may be infeasible)
+        # Retry without role minimums but keep the budget hard constraint
         model2 = cp_model.CpModel()
         x2 = [model2.new_bool_var(f"c{i}") for i in range(n)]
         model2.add(sum(x2) == DECK_SIZE)
         land_vars2 = [x2[i] for i, (c, _, _, _) in enumerate(annotated) if c["is_land"]]
         model2.add(sum(land_vars2) >= target - 1)
         model2.add(sum(land_vars2) <= target + 2)
-        if variant == "wildcard" and wildcard_budget:
+        if wildcard_budget:
             for rarity, budget in wildcard_budget.items():
                 if budget >= 9999:
                     continue
                 unowned_rarity2 = [
                     x2[i] for i, (c, _, owned, _) in enumerate(annotated)
-                    if not owned and c["rarity"] == rarity and not c["is_land"]
+                    if not owned and c["rarity"] == rarity
+                    and not (c["is_land"] and c["rarity"] == "common")
                 ]
                 if unowned_rarity2:
                     model2.add(sum(unowned_rarity2) <= budget)
         model2.maximize(sum(int_scores[i] * x2[i] for i in range(n)))
         status = solver.solve(model2)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            # Budget is too tight to build any deck — fall back to unconstrained
-            model3 = cp_model.CpModel()
-            x3 = [model3.new_bool_var(f"c{i}") for i in range(n)]
-            model3.add(sum(x3) == DECK_SIZE)
-            land_vars3 = [x3[i] for i, (c, _, _, _) in enumerate(annotated) if c["is_land"]]
-            model3.add(sum(land_vars3) >= target - 1)
-            model3.add(sum(land_vars3) <= target + 2)
-            model3.maximize(sum(int_scores[i] * x3[i] for i in range(n)))
-            status = solver.solve(model3)
-            if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-                return BuildResult(cards=[], commander=commander, score=0, infeasible=True)
-            x = x3
-            infeasible_flag = True
-        else:
-            x = x2
-            infeasible_flag = True  # succeeded but with relaxed role constraints
+            # Budget is genuinely too tight — signal infeasible to caller
+            return BuildResult(cards=[], commander=commander, score=0, infeasible=True)
+        x = x2
+        infeasible_flag = True  # succeeded with relaxed role constraints
     else:
         infeasible_flag = False
 

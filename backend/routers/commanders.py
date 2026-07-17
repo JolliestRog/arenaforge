@@ -1,11 +1,21 @@
 import json
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel
 
+import strategy_db
 from db import get_db
 from models import Commander
 
 router = APIRouter(prefix="/commanders", tags=["commanders"])
+
+
+class CommanderStrategy(BaseModel):
+    id: str
+    display_name: str
+    fit_score: float
+    status: str
+    description: str
 
 
 @router.get("", response_model=list[Commander])
@@ -38,3 +48,18 @@ def list_commanders(
         ))
 
     return results
+
+
+@router.get("/{commander_name}/strategies", response_model=list[CommanderStrategy])
+def commander_strategies(commander_name: str):
+    rows = strategy_db.fetch_commander_strategies(commander_name)
+    return [
+        CommanderStrategy(
+            id=r["id"],
+            display_name=r["display_name"],
+            fit_score=round(r["fit_score"], 3),
+            status=r["status"],
+            description=r.get("description") or "",
+        )
+        for r in rows
+    ]

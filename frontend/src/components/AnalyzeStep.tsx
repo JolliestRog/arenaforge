@@ -262,19 +262,35 @@ export default function AnalyzeStep({ collection, onSelectCommander, onBack }: P
 
       <div className="analyze-recs">
         <h3 className="analyze-recs-title">Commander Recommendations</h3>
-        <p className="analyze-recs-sub">
-          Ranked by how well your collection already supports each commander.
-          Owned commanders appear first.
-        </p>
-        <div className="cmdr-card-grid">
-          {result.recommendations.map(rec => (
-            <CommanderCard
-              key={rec.name}
-              rec={rec}
-              onSelect={() => onSelectCommander(rec.name, rec.profile_id)}
-            />
-          ))}
-        </div>
+        {(() => {
+          const owned   = result.recommendations.filter(r => r.owned);
+          const unowned = result.recommendations.filter(r => !r.owned);
+          return (
+            <>
+              {owned.length > 0 && (
+                <>
+                  <p className="analyze-recs-sub">Commanders you own, ranked by how well your collection supports them.</p>
+                  <div className="cmdr-card-grid">
+                    {owned.map(rec => (
+                      <CommanderCard key={rec.name} rec={rec} onSelect={() => onSelectCommander(rec.name, rec.profile_id)} />
+                    ))}
+                  </div>
+                </>
+              )}
+              {unowned.length > 0 && (
+                <>
+                  <h4 className="analyze-recs-subtitle">Commanders worth building toward</h4>
+                  <p className="analyze-recs-sub">You don't own these yet, but your collection already supports the strategy well.</p>
+                  <div className="cmdr-card-grid">
+                    {unowned.map(rec => (
+                      <CommanderCard key={rec.name} rec={rec} onSelect={() => onSelectCommander(rec.name, rec.profile_id)} />
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       <div className="analyze-footer-actions">

@@ -25,6 +25,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend/data:/app/data
+      - ./strategy/data:/app/strategy_data:ro
     networks:
       - proxy
     labels:

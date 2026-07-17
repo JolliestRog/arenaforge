@@ -11,8 +11,9 @@ function normalizeCardName(raw: string): string {
 }
 
 function parseArenaLine(line: string): OwnedCard | null {
-  // Arena format: "<count> <name> (<set>) <collector_number>"
-  const arenaMatch = line.match(/^(\d+)\s+(.+?)\s+\([A-Z0-9]+\)\s+\d+\s*$/);
+  // Arena format: "<count> <name> (<set>) [<collector_number>]"
+  // Collector number is optional — our exporter emits "1 Brainstorm (STA)" without it.
+  const arenaMatch = line.match(/^(\d+)\s+(.+?)\s+\([A-Z0-9]+\)(?:\s+\d+)?\s*$/);
   if (arenaMatch) {
     return { count: parseInt(arenaMatch[1], 10), name: normalizeCardName(arenaMatch[2]) };
   }

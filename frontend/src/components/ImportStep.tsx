@@ -4,6 +4,7 @@ import { parseCollection } from '../lib/parser';
 
 interface Props {
   onNext: (collection: OwnedCard[]) => void;
+  onSkip: () => void;
 }
 
 type ImportMode = 'landing' | 'paste' | 'done';
@@ -33,49 +34,38 @@ function LandingView({ onHaveExport, onSkip }: { onHaveExport: () => void; onSki
       <h2>Import your MTG Arena collection</h2>
       <p className="import-subtext">
         See what your collection can already build. DeckForge analyzes your cards,
-        recommends commanders, and creates Arena Brawl decks around the wildcards
-        you are willing to spend.
+        recommends commanders, and builds optimized decks around the wildcards
+        you're willing to spend.
       </p>
 
-      <div className="onboarding-steps">
-        <div className="onboard-step">
-          <div className="onboard-num">1</div>
-          <div className="onboard-body">
-            <strong>Download the Arena Exporter</strong>
-            <span>A small Windows app that reads your local Arena installation.</span>
-          </div>
+      <div className="import-pill-grid">
+        <div className="import-step-pill">
+          <span className="import-step-num">1</span>
+          <strong>Download the Arena Exporter</strong>
+          <span>A small Windows app that reads your local Arena installation.</span>
         </div>
-        <div className="onboard-arrow">→</div>
-        <div className="onboard-step">
-          <div className="onboard-num">2</div>
-          <div className="onboard-body">
-            <strong>Run it to export your collection</strong>
-            <span>Produces a file with every card and copy you own.</span>
-          </div>
+        <div className="import-step-pill">
+          <span className="import-step-num">2</span>
+          <strong>Run it to export your collection</strong>
+          <span>Produces a file with every card and copy you own.</span>
         </div>
-        <div className="onboard-arrow">→</div>
-        <div className="onboard-step">
-          <div className="onboard-num">3</div>
-          <div className="onboard-body">
-            <strong>Import the file here</strong>
-            <span>DeckForge reads your ownership and optimizes around it.</span>
-          </div>
+        <div className="import-step-pill">
+          <span className="import-step-num">3</span>
+          <strong>Paste the export here</strong>
+          <span>DeckForge reads your ownership and optimizes around it.</span>
         </div>
-      </div>
 
-      <div className="landing-ctas">
-        <a className="btn-primary btn-download-hero" href="/downloads/ArenaForge-MTGA-Exporter.exe" download>
-          Download Arena Exporter
-          <span className="btn-sub">Windows · ~14 MB</span>
+        <a className="import-action-pill" href="/downloads/ArenaForge-MTGA-Exporter.exe" download>
+          Download the Arena Exporter
+          <span className="import-action-sub">Windows · ~14 MB</span>
         </a>
-        <button className="btn-ghost btn-have-export" onClick={onHaveExport}>
+        <button className="import-action-pill" onClick={onHaveExport}>
           I already have an export →
         </button>
+        <button className="import-action-pill import-action-pill--ghost" onClick={onSkip}>
+          Skip / browse without a collection
+        </button>
       </div>
-
-      <button className="btn-skip-link" onClick={onSkip}>
-        Skip — browse without a collection
-      </button>
     </div>
   );
 }
@@ -97,17 +87,6 @@ function PasteView({
     <div className="import-paste">
       <button className="btn-back-link" onClick={onBack}>← Back</button>
       <h2>Import your collection</h2>
-
-      <div className="import-formats">
-        <div className="format-pill active">Paste Arena export</div>
-        <div className="format-pill">Plain card list</div>
-        <div className="format-pill">CSV (name, count)</div>
-      </div>
-
-      <p className="import-subtext">
-        In MTG Arena, go to <strong>Decks → Export Collection</strong> (or use the
-        Arena Exporter), then paste the result below.
-      </p>
 
       <textarea
         className="collection-input"
@@ -180,7 +159,7 @@ function DoneView({
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ImportStep({ onNext }: Props) {
+export default function ImportStep({ onNext, onSkip }: Props) {
   const [mode, setMode] = useState<ImportMode>('landing');
   const [raw, setRaw] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
@@ -222,7 +201,7 @@ export default function ImportStep({ onNext }: Props) {
     return (
       <LandingView
         onHaveExport={() => setMode('paste')}
-        onSkip={() => onNext([])}
+        onSkip={onSkip}
       />
     );
   }

@@ -57,6 +57,7 @@ function adaptVariant(raw: any): DeckVariant {
     variantKey: raw.variant_key,
     label: raw.label,
     description: raw.description,
+    strategyName: raw.strategy_name ?? '',
     commander: adaptCard(raw.commander),
     cards: (raw.cards ?? []).map(adaptDeckCard),
     roleCounts: raw.role_counts ?? {},
@@ -81,6 +82,14 @@ export interface Commander {
   rarity: string;
 }
 
+export interface CommanderStrategy {
+  id: string;
+  display_name: string;
+  fit_score: number;
+  status: string;
+  description: string;
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 export class ApiError extends Error {
@@ -95,6 +104,13 @@ export async function fetchCommanders(colors: string[]): Promise<Commander[]> {
   if (colors.length === 0) return [];
   const params = new URLSearchParams({ colors: colors.join(',') });
   const res = await fetch(`${API_BASE}/commanders?${params}`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function fetchCommanderStrategies(commanderName: string): Promise<CommanderStrategy[]> {
+  if (!commanderName) return [];
+  const res = await fetch(`${API_BASE}/commanders/${encodeURIComponent(commanderName)}/strategies`);
   if (!res.ok) return [];
   return res.json();
 }
