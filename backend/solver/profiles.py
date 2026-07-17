@@ -130,4 +130,99 @@ PROFILES: dict[str, Profile] = {
         priority_roles=["evasive_enabler", "ninjutsu_payoff", "interaction"],
         functional_hand_definition="blue + black mana + evasive enabler + ninjutsu payoff",
     ),
+
+    # ── Generic archetypes (work for any commander / color identity) ───────────
+
+    "tempo": Profile(
+        id="tempo",
+        commander="",
+        display_name="Tempo / Aggro",
+        description="Low-curve threats, evasion, and disruption. Good for aggressive commanders that want to attack early.",
+        land_target=34,
+        role_targets={
+            "evasive_enabler": RoleTarget(min=8,  preferred=14),
+            "interaction":     RoleTarget(min=10, preferred=15),
+            "creature_removal":RoleTarget(min=5,  preferred=8),
+            "draw":            RoleTarget(min=6,  preferred=10),
+            "ramp":            RoleTarget(min=3,  preferred=5),
+        },
+        role_weights={
+            "evasive_enabler": 8, "interaction": 7, "draw": 7,
+            "creature_removal": 6, "counterspell": 5, "ramp": 4,
+            "engine": 5, "finisher": 6, "bridge": 5, "protection": 5,
+            "etb_payoff": 6, "ninjutsu_payoff": 5,
+        },
+        synergy_tag="",
+        priority_roles=["evasive_enabler", "interaction", "creature_removal"],
+        functional_hand_definition="viable mana + early threat + interaction",
+    ),
+
+    "control": Profile(
+        id="control",
+        commander="",
+        display_name="Control",
+        description="Heavy interaction, card draw, and late-game value. Good for commanders that reward answering threats.",
+        land_target=38,
+        role_targets={
+            "counterspell":     RoleTarget(min=6,  preferred=10),
+            "creature_removal": RoleTarget(min=6,  preferred=9),
+            "sweeper":          RoleTarget(min=2,  preferred=4),
+            "draw":             RoleTarget(min=10, preferred=15),
+            "ramp":             RoleTarget(min=5,  preferred=8),
+            "tutor":            RoleTarget(min=2,  preferred=4),
+        },
+        role_weights={
+            "draw": 9, "counterspell": 9, "creature_removal": 8,
+            "sweeper": 8, "tutor": 7, "ramp": 6, "engine": 8,
+            "protection": 6, "selection": 5, "interaction": 6,
+        },
+        synergy_tag="",
+        priority_roles=["draw", "counterspell", "creature_removal", "sweeper"],
+        functional_hand_definition="viable mana + early interaction or card advantage",
+    ),
+
+    "midrange": Profile(
+        id="midrange",
+        commander="",
+        display_name="Midrange",
+        description="Balanced curve with ramp, interaction, and powerful threats. Good for value-oriented commanders.",
+        land_target=36,
+        role_targets={
+            "ramp":             RoleTarget(min=6,  preferred=9),
+            "draw":             RoleTarget(min=8,  preferred=12),
+            "creature_removal": RoleTarget(min=5,  preferred=8),
+            "interaction":      RoleTarget(min=10, preferred=14),
+        },
+        role_weights={
+            "ramp": 8, "draw": 8, "creature_removal": 7, "interaction": 6,
+            "engine": 8, "finisher": 6, "etb_payoff": 6, "tutor": 6,
+            "sweeper": 5, "counterspell": 5, "selection": 5,
+        },
+        synergy_tag="",
+        priority_roles=["ramp", "draw", "creature_removal", "engine"],
+        functional_hand_definition="viable mana + ramp or draw + threat or interaction",
+    ),
+
+    "value": Profile(
+        id="value",
+        commander="",
+        display_name="Combo / Value",
+        description="Tutors, engines, and self-synergy. Good for commanders that assemble specific card combinations.",
+        land_target=36,
+        role_targets={
+            "tutor":       RoleTarget(min=5,  preferred=9),
+            "draw":        RoleTarget(min=10, preferred=15),
+            "ramp":        RoleTarget(min=6,  preferred=9),
+            "protection":  RoleTarget(min=3,  preferred=6),
+            "interaction": RoleTarget(min=8,  preferred=12),
+        },
+        role_weights={
+            "tutor": 10, "engine": 9, "draw": 9, "ramp": 7,
+            "protection": 7, "interaction": 6, "etb_payoff": 7,
+            "selection": 6, "counterspell": 5,
+        },
+        synergy_tag="",
+        priority_roles=["tutor", "engine", "draw", "protection"],
+        functional_hand_definition="viable mana + tutor or engine + protection",
+    ),
 }

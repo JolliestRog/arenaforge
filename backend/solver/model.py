@@ -163,6 +163,16 @@ def build_variant(
         score = _score_card(card, roles, profile, owned, variant)
         annotated.append((card, roles, owned, score))
 
+    # Cap the pool size so CP-SAT remains tractable for large color identities.
+    # Lands are kept in full; non-lands are trimmed to the top-scored candidates.
+    MAX_NONLANDS = 800
+    land_ann = [t for t in annotated if t[0]["is_land"]]
+    nonland_ann = sorted(
+        [t for t in annotated if not t[0]["is_land"]],
+        key=lambda t: -t[3],
+    )[:MAX_NONLANDS]
+    annotated = land_ann + nonland_ann
+
     n = len(annotated)
     if n < DECK_SIZE:
         return BuildResult(cards=[], commander=commander, score=0, infeasible=True)

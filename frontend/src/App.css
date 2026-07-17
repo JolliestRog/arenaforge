@@ -25,9 +25,11 @@ html, body { min-height: 100vh; background: var(--bg); color: var(--text); font-
 .header-inner { max-width: 1100px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
 .logo { font-size: 1.4rem; font-weight: 700; color: var(--gold); letter-spacing: 1px; }
 .tagline { color: var(--text-dim); font-size: 0.85rem; flex: 1; }
-.prototype-banner { background: #1a1205; border-top: 1px solid #3a2a05; color: #aaa070; font-size: 0.78rem; text-align: center; padding: 5px 20px; }
 .app-main { flex: 1; max-width: 1100px; margin: 0 auto; width: 100%; padding: 32px 20px; }
-.app-footer { text-align: center; padding: 16px; color: var(--text-dim); font-size: 0.78rem; border-top: 1px solid var(--border); margin-top: 40px; }
+.app-footer { text-align: center; padding: 16px 16px 32px; color: var(--text-dim); font-size: 0.78rem; border-top: 1px solid var(--border); margin-top: 40px; }
+.app-footer p { margin: 4px 0; }
+.app-footer .footer-links a { color: var(--text-dim); text-decoration: none; }
+.app-footer .footer-links a:hover { color: var(--accent); }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
 button { cursor: pointer; border: none; font: inherit; }
@@ -73,12 +75,28 @@ button { cursor: pointer; border: none; font: inherit; }
 /* ── Build Step ────────────────────────────────────────────────────────── */
 .build-form { display: flex; flex-direction: column; gap: 28px; }
 .form-section h3 { margin-bottom: 12px; font-size: 1rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.82rem; }
-.commander-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
-.commander-card { background: var(--bg2); border: 2px solid var(--border); border-radius: var(--radius); padding: 14px 16px; text-align: left; display: flex; flex-direction: column; gap: 4px; transition: border-color .15s; }
-.commander-card:hover { border-color: var(--accent); }
-.commander-card.selected { border-color: var(--gold); background: #1a1805; }
-.commander-name { font-weight: 600; }
-.commander-colors { color: var(--text-dim); font-size: 0.82rem; }
+
+/* Commander picker */
+.commander-picker { display: flex; flex-direction: column; gap: 10px; }
+.color-filter { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.color-pip { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--border); background: var(--bg3); color: var(--text-dim); font-weight: 700; font-size: 0.82rem; transition: all .15s; }
+.color-pip:hover { border-color: var(--text-dim); color: var(--text); }
+.color-pip.active { box-shadow: 0 0 0 2px currentColor; }
+.color-filter-hint { color: var(--text-dim); font-size: 0.82rem; margin-left: 6px; }
+.commander-search { background: var(--bg2); border: 1px solid var(--border); color: var(--text); border-radius: var(--radius); padding: 8px 12px; font: inherit; font-size: 0.9rem; width: 100%; }
+.commander-search:focus { outline: none; border-color: var(--accent); }
+.commander-list-wrap { max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg2); }
+.picker-hint { color: var(--text-dim); font-size: 0.85rem; padding: 16px; text-align: center; }
+.commander-item { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 8px 12px; text-align: left; background: none; border: none; border-bottom: 1px solid var(--border); color: var(--text); transition: background .1s; }
+.commander-item:last-child { border-bottom: none; }
+.commander-item:hover { background: var(--bg3); }
+.commander-item.selected { background: #1a1805; color: var(--gold); }
+.ci-name { flex: 1; font-size: 0.88rem; }
+.ci-meta { color: var(--text-dim); font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.ci-cmc { color: var(--text-dim); font-size: 0.78rem; font-family: var(--font-mono); width: 20px; text-align: right; flex-shrink: 0; }
+.selected-commander-label { font-size: 0.85rem; color: var(--text-dim); margin-top: 6px; }
+.selected-commander-label strong { color: var(--gold); }
+.muted { color: var(--text-dim); font-size: 0.85rem; }
 .profile-list { display: flex; flex-direction: column; gap: 8px; }
 .profile-card { background: var(--bg2); border: 2px solid var(--border); border-radius: var(--radius); padding: 12px 16px; text-align: left; display: flex; flex-direction: column; gap: 4px; transition: border-color .15s; }
 .profile-card:hover { border-color: var(--accent); }

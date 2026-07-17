@@ -70,6 +70,16 @@ function adaptVariant(raw: any): DeckVariant {
   };
 }
 
+// ── Public types ───────────────────────────────────────────────────────────────
+
+export interface Commander {
+  name: string;
+  cmc: number;
+  color_identity: string[];
+  type_line: string;
+  rarity: string;
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 export class ApiError extends Error {
@@ -78,6 +88,14 @@ export class ApiError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+export async function fetchCommanders(colors: string[]): Promise<Commander[]> {
+  if (colors.length === 0) return [];
+  const params = new URLSearchParams({ colors: colors.join(',') });
+  const res = await fetch(`${API_BASE}/commanders?${params}`);
+  if (!res.ok) return [];
+  return res.json();
 }
 
 export async function buildDeck(
