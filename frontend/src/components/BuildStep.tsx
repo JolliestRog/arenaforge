@@ -7,6 +7,7 @@ interface Props {
   initialRequest: BuildRequest;
   onGenerate: (req: BuildRequest) => void;
   onBack: () => void;
+  loading?: boolean;
 }
 
 const COMMANDER_LIST = Object.keys(COMMANDERS);
@@ -48,7 +49,7 @@ function BudgetInput({
   );
 }
 
-export default function BuildStep({ initialRequest, onGenerate, onBack }: Props) {
+export default function BuildStep({ initialRequest, onGenerate, onBack, loading = false }: Props) {
   const [commander, setCommander] = useState(initialRequest.commander);
   const [profile, setProfile] = useState(initialRequest.profile);
   const [budget, setBudget] = useState<WildcardBudget>(initialRequest.wildcardBudget);
@@ -140,9 +141,9 @@ export default function BuildStep({ initialRequest, onGenerate, onBack }: Props)
       </div>
 
       <div className="step-actions">
-        <button className="btn-ghost" onClick={onBack}>Back</button>
-        <button className="btn-primary" onClick={handleSubmit}>
-          Generate Decks
+        <button className="btn-ghost" onClick={onBack} disabled={loading}>Back</button>
+        <button className="btn-primary" onClick={handleSubmit} disabled={loading}>
+          {loading ? 'Building…' : 'Generate Decks'}
         </button>
       </div>
     </div>

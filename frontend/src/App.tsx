@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { BuildRequest, DeckVariant, OwnedCard } from './lib/types';
-import { generateDeck } from './lib/generator';
+import { buildDeck } from './lib/api';
 import ImportStep from './components/ImportStep';
 import BuildStep from './components/BuildStep';
 import VariantCompare from './components/VariantCompare';
@@ -15,6 +15,7 @@ function App() {
   const [variants, setVariants] = useState<DeckVariant[]>([]);
   const [selectedVariant, setSelectedVariant] = useState<DeckVariant | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   function handleImport(collection: OwnedCard[]) {
     const defaultReq: BuildRequest = {
@@ -27,15 +28,18 @@ function App() {
     setStep('build');
   }
 
-  function handleBuildRequest(req: BuildRequest) {
+  async function handleBuildRequest(req: BuildRequest) {
     setError(null);
+    setLoading(true);
     try {
-      const result = generateDeck(req);
+      const result = await buildDeck(req.collection, req.commander, req.profile, req.wildcardBudget);
       setRequest(req);
       setVariants(result);
       setStep('compare');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -62,10 +66,7 @@ function App() {
             <button className="btn-ghost" onClick={reset}>Start Over</button>
           )}
         </div>
-        <div className="prototype-banner">
-          Phase 1 prototype — weighted heuristic, curated Dimir card pool only.
-          No collection data leaves your browser.
-        </div>
+
       </header>
 
       <main className="app-main">
@@ -83,6 +84,7 @@ function App() {
             initialRequest={request}
             onGenerate={handleBuildRequest}
             onBack={() => setStep('import')}
+            loading={loading}
           />
         )}
 
@@ -103,8 +105,14 @@ function App() {
       </main>
 
       <footer className="app-footer">
-        DeckForge is not affiliated with Wizards of the Coast or MTG Arena.
-        Card data is curated for prototype use only.
+        <p>DeckForge is an unofficial fan tool, not affiliated with Wizards of the Coast or MTG Arena.</p>
+        <p className="footer-links">
+          <a href="/privacy.html">Privacy</a> ·
+          <a href="/terms.html">Terms</a> ·
+          <a href="/rules.html">Rules</a> ·
+          <a href="/safety.html">Safety</a> ·
+          <a href="/support.html">Support the project ☕</a>
+        </p>
       </footer>
     </div>
   );
