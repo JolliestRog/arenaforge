@@ -58,6 +58,13 @@ function App() {
 
   return (
     <div className="app">
+      <div className="side-art side-art-left" aria-hidden="true">
+        <img src="/dragon-left.png" alt="" />
+      </div>
+      <div className="side-art side-art-right" aria-hidden="true">
+        <img src="/dragon-right.png" alt="" />
+      </div>
+
       <header className="app-header">
         <div className="header-inner">
           <span className="logo">DeckForge</span>

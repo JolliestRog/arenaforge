@@ -186,6 +186,37 @@ button { cursor: pointer; border: none; font: inherit; }
 .export-box { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; max-height: 400px; overflow-y: auto; margin-bottom: 14px; }
 .export-box pre { font-family: var(--font-mono); font-size: 0.85rem; white-space: pre-wrap; line-height: 1.7; }
 
+/* ── Side art ──────────────────────────────────────────────────────────── */
+.side-art {
+  position: fixed;
+  top: 0;
+  height: 100vh;
+  width: 260px;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.side-art-left  { left: 0; }
+.side-art-right { right: 0; }
+.side-art img {
+  height: 100%;
+  width: 100%;
+  object-fit: cover;
+  object-position: center top;
+  opacity: 0.75;
+}
+.side-art-left::after,
+.side-art-right::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.side-art-left::after  { background: linear-gradient(to right, transparent 30%, var(--bg) 100%); }
+.side-art-right::after { background: linear-gradient(to left,  transparent 30%, var(--bg) 100%); }
+@media (max-width: 1380px) { .side-art { width: calc((100vw - 1060px) / 2); } }
+@media (max-width: 1160px) { .side-art { display: none; } }
+
 /* ── Collection persistence ────────────────────────────────────────────── */
 .saved-notice {
   background: rgba(92, 138, 255, 0.08);
