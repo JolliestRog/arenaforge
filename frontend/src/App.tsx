@@ -65,15 +65,17 @@ function App() {
         <img src="/dragon-right.png" alt="" />
       </div>
 
-      <header className="app-header">
-        <div className="header-inner">
-          <span className="logo">DeckForge</span>
-          <span className="tagline">Deterministic MTG Deck Optimizer</span>
-          {step !== 'import' && (
+      <header className={`app-header ${step === 'import' ? 'header-hero' : 'header-compact'}`}>
+        <img
+          src="/banner.png"
+          alt="DeckForge — Arena brawl and commander planning tool"
+          className="header-banner"
+        />
+        {step !== 'import' && (
+          <div className="header-nav">
             <button className="btn-ghost" onClick={reset}>Start Over</button>
-          )}
-        </div>
-
+          </div>
+        )}
       </header>
 
       <main className="app-main">
