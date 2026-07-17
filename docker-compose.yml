@@ -17,6 +17,27 @@ services:
       - traefik.http.routers.arenaforge.tls.certresolver=le
       - traefik.http.services.arenaforge.loadbalancer.server.port=80
 
+  arenaforge-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: arenaforge-api
+    restart: unless-stopped
+    volumes:
+      - ./backend/data:/app/data
+    networks:
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.public=true
+      - traefik.docker.network=compose_proxy
+      - traefik.http.routers.arenaforge-api.rule=Host(`deckforge.facey.page`) && PathPrefix(`/api`)
+      - traefik.http.routers.arenaforge-api.entrypoints=websecure
+      - traefik.http.routers.arenaforge-api.tls.certresolver=le
+      - traefik.http.middlewares.arenaforge-api-strip.stripprefix.prefixes=/api
+      - traefik.http.routers.arenaforge-api.middlewares=arenaforge-api-strip
+      - traefik.http.services.arenaforge-api.loadbalancer.server.port=8000
+
 networks:
   proxy:
     name: compose_proxy

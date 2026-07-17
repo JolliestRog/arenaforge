@@ -2,7 +2,10 @@ frontend/dist/
 frontend/node_modules/
 .env
 *.local
-backend/
+backend/data/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/.venv/
 exporter/.venv/
 exporter/build/
 exporter/dist/
