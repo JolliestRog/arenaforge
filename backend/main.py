@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import db
-from routers import build, cards, commanders
+from routers import analyze, build, cards, commanders
 
 
 @asynccontextmanager
@@ -24,10 +24,11 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://deckforge.facey.page"],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
+app.include_router(analyze.router)
 app.include_router(cards.router)
 app.include_router(commanders.router)
 app.include_router(build.router)

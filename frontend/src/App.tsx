@@ -2,15 +2,17 @@ import { useState } from 'react';
 import type { BuildRequest, DeckVariant, OwnedCard } from './lib/types';
 import { buildDeck } from './lib/api';
 import ImportStep from './components/ImportStep';
+import AnalyzeStep from './components/AnalyzeStep';
 import BuildStep from './components/BuildStep';
 import VariantCompare from './components/VariantCompare';
 import DeckView from './components/DeckView';
 import './App.css';
 
-type Step = 'import' | 'build' | 'compare' | 'deck';
+type Step = 'import' | 'analyze' | 'build' | 'compare' | 'deck';
 
 const STEPS: { key: Step; label: string }[] = [
   { key: 'import',  label: 'Import' },
+  { key: 'analyze', label: 'Collection Profile' },
   { key: 'build',   label: 'Commander & Budget' },
   { key: 'compare', label: 'Compare Builds' },
   { key: 'deck',    label: 'Deck & Export' },
@@ -52,6 +54,16 @@ function App() {
       wildcardBudget: { common: Infinity, uncommon: Infinity, rare: Infinity, mythic: Infinity },
     };
     setRequest(r => r ? { ...r, collection } : defaultReq);
+    setStep('analyze');
+  }
+
+  function handleSelectCommander(name: string, profile: string) {
+    setRequest(r => r ? { ...r, commander: name, profile } : {
+      collection: [],
+      commander: name,
+      profile,
+      wildcardBudget: { common: Infinity, uncommon: Infinity, rare: Infinity, mythic: Infinity },
+    });
     setStep('build');
   }
 
@@ -117,11 +129,19 @@ function App() {
 
         {step === 'import' && <ImportStep onNext={handleImport} />}
 
+        {step === 'analyze' && request && (
+          <AnalyzeStep
+            collection={request.collection}
+            onSelectCommander={handleSelectCommander}
+            onBack={() => setStep('import')}
+          />
+        )}
+
         {step === 'build' && request && (
           <BuildStep
             initialRequest={request}
             onGenerate={handleBuildRequest}
-            onBack={() => setStep('import')}
+            onBack={() => setStep('analyze')}
             loading={loading}
           />
         )}

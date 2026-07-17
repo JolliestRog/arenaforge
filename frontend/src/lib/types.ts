@@ -90,3 +90,43 @@ export interface ParseResult {
   cards: OwnedCard[];
   errors: string[];
 }
+
+// ── Collection analysis types ──────────────────────────────────────────────────
+
+export interface ColorStrength {
+  color: string;
+  label: string;
+  owned: number;
+  rares: number;
+  mythics: number;
+}
+
+export interface CommanderRecommendation {
+  name: string;
+  color_identity: string[];
+  cmc: number;
+  rarity: Rarity;
+  type_line: string;
+  owned: boolean;
+  profile_id: string;
+  profile_name: string;
+  collection_fit: number;
+  owned_pct: number;
+  owned_pool: number;
+  total_pool: number;
+  role_coverage: Record<string, number>;
+  score_breakdown: Record<string, number>;
+  key_owned: string[];
+  key_missing: string[];
+}
+
+export interface AnalysisResult {
+  total_unique: number;
+  total_copies: number;
+  color_strength: ColorStrength[];
+  type_distribution: Record<string, number>;
+  role_counts: Record<string, number>;
+  strongest_colors: string[];
+  summary: string;
+  recommendations: CommanderRecommendation[];
+}

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Safety — DeckForge</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <style>
+    body { background: #0d0f14; font-family: system-ui, sans-serif; color: #ccc; margin: 0; }
+    .policy { max-width: 680px; margin: 0 auto; padding: 40px 16px 80px; line-height: 1.7; }
+    h1 { font-size: 2rem; color: #d4d8e8; margin-bottom: 4px; }
+    h2 { font-size: 0.85rem; color: #d4d8e8; margin: 32px 0 8px; text-transform: uppercase; letter-spacing: 1px; }
+    p, li { font-size: 14px; margin-bottom: 12px; }
+    ul { margin: 0 0 14px 20px; }
+    li { margin-bottom: 6px; }
+    a { color: #5c8aff; }
+    .meta { font-size: 12px; color: #555; margin-bottom: 32px; }
+    .back { display: inline-block; margin-bottom: 32px; font-size: 13px; color: #555; text-decoration: none; }
+    .back:hover { color: #d4d8e8; }
+  </style>
+</head>
+<body>
+  <div class="policy">
+    <a class="back" href="/">← Back to DeckForge</a>
+    <h1>Safety</h1>
+    <p class="meta">How DeckForge keeps your data safe.</p>
+
+    <h2>No accounts, no stored data</h2>
+    <p>DeckForge has no user accounts and stores nothing about you. Your collection and deck choices exist only in your browser tab. Closing the tab discards everything.</p>
+
+    <h2>The exporter tool</h2>
+    <p>The optional Windows exporter reads your MTG Arena installation locally on your PC to produce a collection file. It does not send data over the network — it writes a plain text file to your hard drive that you then paste into DeckForge. The source code is available on <a href="https://github.com/JolliestRog/arenaforge" target="_blank" rel="noopener">GitHub</a> for inspection.</p>
+
+    <h2>Windows SmartScreen warning</h2>
+    <p>When you first run the exporter .exe, Windows may show a SmartScreen warning. This is normal for open-source tools distributed without a commercial code-signing certificate ($400/yr). Click <strong>More info → Run anyway</strong>. If you'd prefer not to do that, you can build the tool yourself from the source code.</p>
+
+    <h2>Reporting a security issue</h2>
+    <p>If you discover a vulnerability or something that looks wrong, email <a href="mailto:chandler@facey.page">chandler@facey.page</a>. Please don't publish it publicly before giving a chance to respond.</p>
+  </div>
+</body>
+</html>

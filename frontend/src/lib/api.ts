@@ -1,5 +1,5 @@
 import type {
-  CardData, DeckCard, DeckVariant,
+  AnalysisResult, CardData, DeckCard, DeckVariant,
   ExcludedCard, OwnedCard, WildcardBudget,
 } from './types';
 
@@ -125,4 +125,19 @@ export async function buildDeck(
 
   const data = await res.json();
   return (data as unknown[]).map(adaptVariant);
+}
+
+export async function analyzeCollection(collection: OwnedCard[]): Promise<AnalysisResult> {
+  const res = await fetch(`${API_BASE}/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(collection),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new ApiError(res.status, err.detail ?? 'Analysis failed');
+  }
+
+  return res.json();
 }
