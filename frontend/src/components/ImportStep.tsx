@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { OwnedCard } from '../lib/types';
 import { parseCollection } from '../lib/parser';
 
 interface Props {
   onNext: (collection: OwnedCard[]) => void;
 }
+
+const STORAGE_KEY = 'deckforge_collection';
 
 const SAMPLE_COLLECTION = `2 Brainstorm
 2 Ponder
@@ -25,16 +27,54 @@ const SAMPLE_COLLECTION = `2 Brainstorm
 4 Island
 4 Swamp`;
 
+function loadSaved(): { raw: string; cards: OwnedCard[] } | null {
+  try {
+    const s = localStorage.getItem(STORAGE_KEY);
+    if (!s) return null;
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+function saveSaved(raw: string, cards: OwnedCard[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ raw, cards }));
+  } catch {
+    // storage full or unavailable — silently ignore
+  }
+}
+
+function clearSaved() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+}
+
 export default function ImportStep({ onNext }: Props) {
   const [raw, setRaw] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
   const [parsed, setParsed] = useState<OwnedCard[] | null>(null);
+  const [hasSaved, setHasSaved] = useState(false);
+
+  useEffect(() => {
+    const saved = loadSaved();
+    if (saved) {
+      setRaw(saved.raw);
+      setParsed(saved.cards);
+      setHasSaved(true);
+    }
+  }, []);
 
   function handleParse() {
     const input = raw.trim() || SAMPLE_COLLECTION;
     const result = parseCollection(input);
     setErrors(result.errors);
-    setParsed(result.cards.length > 0 ? result.cards : null);
+    if (result.cards.length > 0) {
+      setParsed(result.cards);
+      saveSaved(input, result.cards);
+      setHasSaved(true);
+    } else {
+      setParsed(null);
+    }
   }
 
   function handleContinue() {
@@ -43,6 +83,14 @@ export default function ImportStep({ onNext }: Props) {
 
   function handleSkip() {
     onNext([]);
+  }
+
+  function handleClear() {
+    clearSaved();
+    setRaw('');
+    setParsed(null);
+    setErrors([]);
+    setHasSaved(false);
   }
 
   return (
@@ -85,6 +133,12 @@ export default function ImportStep({ onNext }: Props) {
         <div className="format-pill">CSV (name, count)</div>
       </div>
 
+      {hasSaved && !raw && (
+        <div className="saved-notice">
+          Collection loaded from your last session.
+        </div>
+      )}
+
       <textarea
         className="collection-input"
         placeholder={`Paste your collection here, e.g.\n\n1 Counterspell (TSR) 73\n2 Brainstorm\n\nOr leave blank to use a sample collection.`}
@@ -100,6 +154,11 @@ export default function ImportStep({ onNext }: Props) {
         <button className="btn-ghost" onClick={handleSkip}>
           Skip (no collection)
         </button>
+        {hasSaved && (
+          <button className="btn-ghost btn-clear" onClick={handleClear}>
+            Clear saved collection
+          </button>
+        )}
       </div>
 
       {errors.length > 0 && (
@@ -114,6 +173,7 @@ export default function ImportStep({ onNext }: Props) {
           <div className="parse-summary">
             Parsed <strong>{parsed.length}</strong> unique cards
             ({parsed.reduce((s, c) => s + c.count, 0)} total copies).
+            <span className="saved-tag">Saved in browser</span>
           </div>
           <div className="parsed-preview">
             {parsed.slice(0, 8).map(c => (

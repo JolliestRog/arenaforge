@@ -186,6 +186,30 @@ button { cursor: pointer; border: none; font: inherit; }
 .export-box { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; max-height: 400px; overflow-y: auto; margin-bottom: 14px; }
 .export-box pre { font-family: var(--font-mono); font-size: 0.85rem; white-space: pre-wrap; line-height: 1.7; }
 
+/* ── Collection persistence ────────────────────────────────────────────── */
+.saved-notice {
+  background: rgba(92, 138, 255, 0.08);
+  border: 1px solid rgba(92, 138, 255, 0.25);
+  color: var(--accent);
+  padding: 7px 12px;
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  margin-bottom: 10px;
+}
+.saved-tag {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: rgba(92, 138, 255, 0.1);
+  border: 1px solid rgba(92, 138, 255, 0.25);
+  color: var(--accent);
+  font-size: 0.72rem;
+  vertical-align: middle;
+}
+.btn-clear { color: var(--red); border-color: rgba(238, 85, 85, 0.3); }
+.btn-clear:hover { color: var(--red); border-color: var(--red); }
+
 /* ── Card image tooltip ────────────────────────────────────────────────── */
 .card-tooltip-img {
   position: fixed;
