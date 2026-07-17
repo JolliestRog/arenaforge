@@ -83,6 +83,7 @@ export interface DeckVariant {
   excludedHighScorers: ExcludedCard[];
   arenaExport: string;
   score: number;
+  infeasible: boolean;
 }
 
 export interface ParseResult {

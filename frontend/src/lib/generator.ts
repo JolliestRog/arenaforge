@@ -369,6 +369,7 @@ export function generateDeck(request: BuildRequest): DeckVariant[] {
       excludedHighScorers: excluded,
       arenaExport: arenaExport(commanderCard, cards),
       score: cards.reduce((sum, c) => sum + c.score, 0),
+      infeasible: false,
     };
   });
 }

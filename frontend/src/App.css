@@ -186,6 +186,61 @@ button { cursor: pointer; border: none; font: inherit; }
 .export-box { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; max-height: 400px; overflow-y: auto; margin-bottom: 14px; }
 .export-box pre { font-family: var(--font-mono); font-size: 0.85rem; white-space: pre-wrap; line-height: 1.7; }
 
+/* ── Card image tooltip ────────────────────────────────────────────────── */
+.card-tooltip-img {
+  position: fixed;
+  z-index: 9999;
+  width: 224px;
+  border-radius: 13px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.8);
+  pointer-events: none;
+}
+
+/* ── Infeasible warning ────────────────────────────────────────────────── */
+.infeasible-banner {
+  background: rgba(180, 100, 0, 0.12);
+  border: 1px solid rgba(200, 120, 0, 0.35);
+  color: #c87800;
+  padding: 9px 14px;
+  border-radius: var(--radius);
+  margin-bottom: 14px;
+  font-size: 0.85rem;
+}
+.infeasible-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: rgba(200, 120, 0, 0.18);
+  border: 1px solid rgba(200, 120, 0, 0.35);
+  color: #c87800;
+  font-size: 0.7rem;
+  font-weight: 600;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Card list toolbar ─────────────────────────────────────────────────── */
+.card-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.card-list-hint { font-size: 0.8rem; color: var(--text-dim); }
+.btn-copy-inline {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.btn-copy-inline:hover { color: var(--text); border-color: var(--accent); }
+
 /* ── Utilities ─────────────────────────────────────────────────────────── */
 .muted { color: var(--text-dim); }
 

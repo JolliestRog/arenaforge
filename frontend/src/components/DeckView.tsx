@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { DeckCard, DeckVariant } from '../lib/types';
 
 interface Props {
@@ -24,9 +25,29 @@ function RarityDot({ rarity }: { rarity: string }) {
   );
 }
 
-function CardLine({ dc }: { dc: DeckCard }) {
+function CardTooltip({ name, x, y }: { name: string; x: number; y: number }) {
+  const src = `https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}&format=image&version=normal`;
+  const left = Math.min(x + 20, window.innerWidth - 248);
+  const top = Math.max(8, Math.min(y - 130, window.innerHeight - 368));
+  return createPortal(
+    <img className="card-tooltip-img" src={src} alt={name} style={{ left, top }} />,
+    document.body,
+  );
+}
+
+function CardLine({
+  dc,
+  onHover,
+}: {
+  dc: DeckCard;
+  onHover: (name: string | null, e?: React.MouseEvent) => void;
+}) {
   return (
-    <div className={`card-line ${!dc.owned ? 'not-owned' : ''}`}>
+    <div
+      className={`card-line ${!dc.owned ? 'not-owned' : ''}`}
+      onMouseEnter={e => onHover(dc.card.name, e)}
+      onMouseLeave={() => onHover(null)}
+    >
       <RarityDot rarity={dc.card.rarity} />
       <span className="card-mv">{dc.card.isLand ? 'L' : dc.card.mv}</span>
       <span className="card-name">{dc.card.name}</span>
@@ -38,13 +59,36 @@ function CardLine({ dc }: { dc: DeckCard }) {
   );
 }
 
+function CurveBars({ curve }: { curve: Record<number, number> }) {
+  const max = Math.max(1, ...Object.values(curve));
+  return (
+    <div className="curve-bars">
+      {[0, 1, 2, 3, 4, 5, 6, 7].map(mv => (
+        <div key={mv} className="curve-bar-col">
+          <div
+            className="curve-bar"
+            style={{ height: `${((curve[mv] ?? 0) / max) * 60}px` }}
+            title={`${mv}${mv === 7 ? '+' : ''}: ${curve[mv] ?? 0}`}
+          />
+          <span className="curve-label">{mv}{mv === 7 ? '+' : ''}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function DeckView({ variant, onBack }: Props) {
   const [tab, setTab] = useState<Tab>('list');
   const [copied, setCopied] = useState(false);
+  const [tooltip, setTooltip] = useState<{ name: string; x: number; y: number } | null>(null);
 
   const lands = variant.cards.filter(c => c.card.isLand);
   const spells = variant.cards.filter(c => !c.card.isLand);
   const notOwned = variant.cards.filter(c => !c.owned);
+
+  function handleHover(name: string | null, e?: React.MouseEvent) {
+    setTooltip(name && e ? { name, x: e.clientX, y: e.clientY } : null);
+  }
 
   function copyExport() {
     navigator.clipboard.writeText(variant.arenaExport).then(() => {
@@ -55,6 +99,8 @@ export default function DeckView({ variant, onBack }: Props) {
 
   return (
     <div className="step deck-step">
+      {tooltip && <CardTooltip name={tooltip.name} x={tooltip.x} y={tooltip.y} />}
+
       <div className="deck-header">
         <div>
           <h2>{variant.label}</h2>
@@ -67,6 +113,12 @@ export default function DeckView({ variant, onBack }: Props) {
         </div>
       </div>
 
+      {variant.infeasible && (
+        <div className="infeasible-banner">
+          Wildcard budget too tight to satisfy all role targets — showing best unconstrained build instead.
+        </div>
+      )}
+
       <div className="tab-bar">
         <button className={tab === 'list' ? 'tab active' : 'tab'} onClick={() => setTab('list')}>Card List</button>
         <button className={tab === 'analysis' ? 'tab active' : 'tab'} onClick={() => setTab('analysis')}>Analysis</button>
@@ -75,9 +127,20 @@ export default function DeckView({ variant, onBack }: Props) {
 
       {tab === 'list' && (
         <div className="tab-content card-list-view">
+          <div className="card-list-toolbar">
+            <span className="card-list-hint">Hover a card to preview</span>
+            <button className="btn-copy-inline" onClick={copyExport}>
+              {copied ? '✓ Copied' : 'Copy Export'}
+            </button>
+          </div>
+
           <div className="card-section">
             <h3>Commander (1)</h3>
-            <div className="card-line owned">
+            <div
+              className="card-line owned"
+              onMouseEnter={e => handleHover(variant.commander.name, e)}
+              onMouseLeave={() => handleHover(null)}
+            >
               <RarityDot rarity={variant.commander.rarity} />
               <span className="card-mv">{variant.commander.mv}</span>
               <span className="card-name">{variant.commander.name}</span>
@@ -89,14 +152,14 @@ export default function DeckView({ variant, onBack }: Props) {
             <h3>Spells ({spells.length})</h3>
             {[...spells]
               .sort((a, b) => a.card.mv - b.card.mv || a.card.name.localeCompare(b.card.name))
-              .map(dc => <CardLine key={dc.card.name} dc={dc} />)}
+              .map(dc => <CardLine key={dc.card.name} dc={dc} onHover={handleHover} />)}
           </div>
 
           <div className="card-section">
             <h3>Lands ({lands.length})</h3>
             {[...lands]
               .sort((a, b) => a.card.name.localeCompare(b.card.name))
-              .map(dc => <CardLine key={dc.card.name} dc={dc} />)}
+              .map(dc => <CardLine key={dc.card.name} dc={dc} onHover={handleHover} />)}
           </div>
 
           <div className="legend">
@@ -111,6 +174,11 @@ export default function DeckView({ variant, onBack }: Props) {
 
       {tab === 'analysis' && (
         <div className="tab-content analysis-view">
+          <section className="analysis-section">
+            <h3>Mana Curve</h3>
+            <CurveBars curve={variant.manaCurve} />
+          </section>
+
           <section className="analysis-section">
             <h3>Opening Hand Estimate</h3>
             <div className="big-stat">

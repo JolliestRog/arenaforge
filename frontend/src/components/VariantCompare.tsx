@@ -55,7 +55,10 @@ export default function VariantCompare({ variants, onSelect, onBack }: Props) {
         {variants.map(v => (
           <div key={v.variantKey} className="variant-card">
             <div className="variant-header">
-              <h3>{v.label}</h3>
+              <h3>
+                {v.label}
+                {v.infeasible && <span className="infeasible-badge">budget exceeded</span>}
+              </h3>
               <p className="variant-desc">{v.description}</p>
             </div>
 

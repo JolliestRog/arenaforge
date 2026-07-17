@@ -67,6 +67,7 @@ function adaptVariant(raw: any): DeckVariant {
     excludedHighScorers,
     arenaExport: raw.arena_export ?? '',
     score: raw.score ?? 0,
+    infeasible: raw.infeasible ?? false,
   };
 }
 
