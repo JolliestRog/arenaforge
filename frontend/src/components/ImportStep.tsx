@@ -114,10 +114,12 @@ function DoneView({
   parsed,
   onContinue,
   onReimport,
+  onPurge,
 }: {
   parsed: OwnedCard[];
   onContinue: () => void;
   onReimport: () => void;
+  onPurge: () => void;
 }) {
   const totalCopies = parsed.reduce((s, c) => s + c.count, 0);
   const now = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -142,6 +144,7 @@ function DoneView({
         <div className="summary-stat">
           <span className="summary-num saved-tag-inline">Saved locally</span>
           <span className="summary-label">Storage</span>
+          <button className="btn-purge" onClick={onPurge}>Clear saved data</button>
         </div>
       </div>
 
@@ -192,6 +195,14 @@ export default function ImportStep({ onNext, onSkip }: Props) {
     setMode('paste');
   }
 
+  function handlePurge() {
+    clearSaved();
+    setRaw('');
+    setParsed(null);
+    setErrors([]);
+    setMode('landing');
+  }
+
   function handleRawChange(v: string) {
     setRaw(v);
     setErrors([]);
@@ -223,6 +234,7 @@ export default function ImportStep({ onNext, onSkip }: Props) {
       parsed={parsed!}
       onContinue={() => onNext(parsed!)}
       onReimport={handleReimport}
+      onPurge={handlePurge}
     />
   );
 }
