@@ -6,9 +6,10 @@ import AnalyzeStep from './components/AnalyzeStep';
 import BuildStep from './components/BuildStep';
 import VariantCompare from './components/VariantCompare';
 import DeckView from './components/DeckView';
+import PlayGuideStep from './components/PlayGuideStep';
 import './App.css';
 
-type Step = 'import' | 'analyze' | 'build' | 'compare' | 'deck';
+type Step = 'import' | 'analyze' | 'build' | 'compare' | 'deck' | 'guide';
 
 const STEPS: { key: Step; label: string }[] = [
   { key: 'import',  label: 'Import' },
@@ -16,6 +17,7 @@ const STEPS: { key: Step; label: string }[] = [
   { key: 'build',   label: 'Commander & Budget' },
   { key: 'compare', label: 'Compare Builds' },
   { key: 'deck',    label: 'Deck & Export' },
+  { key: 'guide',   label: 'Play Guide' },
 ];
 
 function StepBar({ current }: { current: Step }) {
@@ -169,6 +171,14 @@ function App() {
           <DeckView
             variant={selectedVariant}
             onBack={() => setStep('compare')}
+            onViewGuide={() => setStep('guide')}
+          />
+        )}
+
+        {step === 'guide' && selectedVariant && (
+          <PlayGuideStep
+            variant={selectedVariant}
+            onBack={() => setStep('deck')}
           />
         )}
       </main>

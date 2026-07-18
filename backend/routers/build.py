@@ -119,11 +119,20 @@ class ExcludedCard(BaseModel):
     score: float
     reason: str
 
+class FeaturedCards(BaseModel):
+    engines: list[str] = []
+    finishers: list[str] = []
+    setup: list[str] = []
+    interaction: list[str] = []
+    protection: list[str] = []
+    ramp: list[str] = []
+
 class DeckVariantResponse(BaseModel):
     variant_key: Literal["performance", "wildcard", "consistency"]
     label: str
     description: str
     strategy_name: str
+    strategy_id: str
     commander: CardResponse
     cards: list[DeckCardResponse]
     role_counts: dict[str, int]
@@ -135,6 +144,7 @@ class DeckVariantResponse(BaseModel):
     arena_export: str
     score: float
     infeasible: bool
+    featured_cards: FeaturedCards = FeaturedCards()
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -154,6 +164,31 @@ def _card_response(card: dict) -> CardResponse:
         is_creature=bool(card["is_creature"]),
         is_legendary=bool(card["is_legendary"]),
         is_commander=bool(card["is_commander"]),
+    )
+
+
+def _featured_cards_for(cards: list[DeckCard]) -> FeaturedCards:
+    def top(role_any: list[str], n: int = 4) -> list[str]:
+        role_set = set(role_any)
+        hits = [dc for dc in cards if not dc.card["is_land"] and set(dc.roles) & role_set]
+        hits.sort(key=lambda dc: -dc.score)
+        seen: set[str] = set()
+        result = []
+        for dc in hits:
+            if dc.card["name"] not in seen:
+                seen.add(dc.card["name"])
+                result.append(dc.card["name"])
+            if len(result) >= n:
+                break
+        return result
+
+    return FeaturedCards(
+        engines=top(["engine"]),
+        finishers=top(["finisher"]),
+        setup=top(["selection", "topdeck_setup"]),
+        interaction=top(["counterspell", "creature_removal", "sweeper"]),
+        protection=top(["protection"]),
+        ramp=top(["ramp"]),
     )
 
 
@@ -195,6 +230,7 @@ def _build_variant_response(
     label: str,
     description: str,
     strategy_name: str,
+    strategy_id: str,
     all_candidates: list[dict],
     owned_set: set[str],
     profile,
@@ -218,6 +254,7 @@ def _build_variant_response(
         label=label,
         description=description,
         strategy_name=strategy_name,
+        strategy_id=strategy_id,
         commander=_card_response(result.commander),
         cards=[
             DeckCardResponse(
@@ -239,6 +276,7 @@ def _build_variant_response(
         arena_export=arena_export(result.commander, result.cards),
         score=result.score,
         infeasible=result.infeasible,
+        featured_cards=_featured_cards_for(result.cards),
     )
 
 
@@ -314,7 +352,8 @@ def build(req: BuildRequest):
         label, description = VARIANT_META[vk]
         variants.append(
             _build_variant_response(
-                result, vk, label, description, strategy_name, candidates, owned_set, profile,
+                result, vk, label, description, strategy_name, req.profile,
+                candidates, owned_set, profile,
                 strategy_weights=strategy_weights,
             )
         )

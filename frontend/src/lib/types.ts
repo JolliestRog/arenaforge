@@ -69,11 +69,21 @@ export interface ExcludedCard {
   reason: string;
 }
 
+export interface FeaturedCards {
+  engines: string[];
+  finishers: string[];
+  setup: string[];
+  interaction: string[];
+  protection: string[];
+  ramp: string[];
+}
+
 export interface DeckVariant {
   variantKey: 'performance' | 'wildcard' | 'consistency';
   label: string;
   description: string;
   strategyName: string;
+  strategyId: string;
   commander: CardData;
   cards: DeckCard[];
   roleCounts: Record<string, number>;
@@ -85,6 +95,7 @@ export interface DeckVariant {
   arenaExport: string;
   score: number;
   infeasible: boolean;
+  featuredCards: FeaturedCards;
 }
 
 export interface ParseResult {

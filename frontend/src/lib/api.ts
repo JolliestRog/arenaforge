@@ -53,11 +53,13 @@ function adaptVariant(raw: any): DeckVariant {
     (e: any) => ({ name: e.name, score: e.score, reason: e.reason })
   );
 
+  const fc = raw.featured_cards ?? {};
   return {
     variantKey: raw.variant_key,
     label: raw.label,
     description: raw.description,
     strategyName: raw.strategy_name ?? '',
+    strategyId: raw.strategy_id ?? '',
     commander: adaptCard(raw.commander),
     cards: (raw.cards ?? []).map(adaptDeckCard),
     roleCounts: raw.role_counts ?? {},
@@ -69,6 +71,14 @@ function adaptVariant(raw: any): DeckVariant {
     arenaExport: raw.arena_export ?? '',
     score: raw.score ?? 0,
     infeasible: raw.infeasible ?? false,
+    featuredCards: {
+      engines: fc.engines ?? [],
+      finishers: fc.finishers ?? [],
+      setup: fc.setup ?? [],
+      interaction: fc.interaction ?? [],
+      protection: fc.protection ?? [],
+      ramp: fc.ramp ?? [],
+    },
   };
 }
 

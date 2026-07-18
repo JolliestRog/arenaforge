@@ -5,6 +5,7 @@ import type { DeckCard, DeckVariant } from '../lib/types';
 interface Props {
   variant: DeckVariant;
   onBack: () => void;
+  onViewGuide?: () => void;
 }
 
 type Tab = 'list' | 'analysis' | 'export';
@@ -77,7 +78,7 @@ function CurveBars({ curve }: { curve: Record<number, number> }) {
   );
 }
 
-export default function DeckView({ variant, onBack }: Props) {
+export default function DeckView({ variant, onBack, onViewGuide }: Props) {
   const [tab, setTab] = useState<Tab>('list');
   const [copied, setCopied] = useState(false);
   const [tooltip, setTooltip] = useState<{ name: string; x: number; y: number } | null>(null);
@@ -270,6 +271,9 @@ export default function DeckView({ variant, onBack }: Props) {
 
       <div className="step-actions">
         <button className="btn-ghost" onClick={onBack}>Back to Variants</button>
+        {onViewGuide && (
+          <button className="btn-primary" onClick={onViewGuide}>View Play Guide</button>
+        )}
       </div>
     </div>
   );

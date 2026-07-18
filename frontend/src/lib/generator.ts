@@ -360,6 +360,7 @@ export function generateDeck(request: BuildRequest): DeckVariant[] {
       label: vd.label,
       description: vd.description,
       strategyName: '',
+      strategyId: request.profile,
       commander: commanderCard,
       cards,
       roleCounts: roleCounts(cards),
@@ -371,6 +372,7 @@ export function generateDeck(request: BuildRequest): DeckVariant[] {
       arenaExport: arenaExport(commanderCard, cards),
       score: cards.reduce((sum, c) => sum + c.score, 0),
       infeasible: false,
+      featuredCards: { engines: [], finishers: [], setup: [], interaction: [], protection: [], ramp: [] },
     };
   });
 }
