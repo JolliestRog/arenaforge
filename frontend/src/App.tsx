@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { BuildRequest, DeckVariant, OwnedCard } from './lib/types';
+import type { AnalysisResult, BuildRequest, DeckVariant, OwnedCard } from './lib/types';
 import { buildDeck } from './lib/api';
 import ImportStep from './components/ImportStep';
 import AnalyzeStep from './components/AnalyzeStep';
@@ -45,6 +45,7 @@ function App() {
   const [request, setRequest] = useState<BuildRequest | null>(null);
   const [variants, setVariants] = useState<DeckVariant[]>([]);
   const [selectedVariant, setSelectedVariant] = useState<DeckVariant | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -113,6 +114,7 @@ function App() {
     setRequest(null);
     setVariants([]);
     setSelectedVariant(null);
+    setAnalysisResult(null);
     setError(null);
   }
 
@@ -145,6 +147,8 @@ function App() {
         {step === 'analyze' && request && (
           <AnalyzeStep
             collection={request.collection}
+            cachedResult={analysisResult}
+            onResult={setAnalysisResult}
             onSelectCommander={handleSelectCommander}
             onBack={() => setStep('import')}
           />
@@ -154,7 +158,7 @@ function App() {
           <BuildStep
             initialRequest={request}
             onGenerate={handleBuildRequest}
-            onBack={() => setStep('analyze')}
+            onBack={() => setStep(request.collection.length > 0 ? 'analyze' : 'import')}
             loading={loading}
           />
         )}

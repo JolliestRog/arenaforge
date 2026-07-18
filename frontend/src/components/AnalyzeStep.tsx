@@ -4,6 +4,8 @@ import { analyzeCollection } from '../lib/api';
 
 interface Props {
   collection: OwnedCard[];
+  cachedResult?: AnalysisResult | null;
+  onResult: (r: AnalysisResult) => void;
   onSelectCommander: (name: string, profile: string) => void;
   onBack: () => void;
 }
@@ -207,17 +209,19 @@ function CommanderCard({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function AnalyzeStep({ collection, onSelectCommander, onBack }: Props) {
-  const [result, setResult] = useState<AnalysisResult | null>(null);
+export default function AnalyzeStep({ collection, cachedResult, onResult, onSelectCommander, onBack }: Props) {
+  const [result, setResult] = useState<AnalysisResult | null>(cachedResult ?? null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(cachedResult == null);
 
   useEffect(() => {
+    if (cachedResult != null) return;
     analyzeCollection(collection)
-      .then(setResult)
+      .then(r => { setResult(r); onResult(r); })
       .catch(e => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
-  }, [collection]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) {
     return (
