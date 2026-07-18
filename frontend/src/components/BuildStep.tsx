@@ -146,10 +146,15 @@ function BudgetInput({
   );
 }
 
+const INFINITE_BUDGET: WildcardBudget = { common: Infinity, uncommon: Infinity, rare: Infinity, mythic: Infinity };
+
 export default function BuildStep({ initialRequest, onGenerate, onBack, loading = false }: Props) {
+  const hasCollection = initialRequest.collection.length > 0;
   const [commander, setCommander] = useState(initialRequest.commander);
   const [profile, setProfile] = useState(initialRequest.profile);
-  const [budget, setBudget] = useState<WildcardBudget>(initialRequest.wildcardBudget);
+  const [budget, setBudget] = useState<WildcardBudget>(
+    hasCollection ? initialRequest.wildcardBudget : INFINITE_BUDGET
+  );
   const [dbStrategies, setDbStrategies] = useState<CommanderStrategy[]>([]);
   const [loadingStrategies, setLoadingStrategies] = useState(false);
 
@@ -264,15 +269,23 @@ export default function BuildStep({ initialRequest, onGenerate, onBack, loading 
 
         <section className="form-section">
           <h3>Wildcard Budget</h3>
-          <p className="budget-note">
-            Set limits per rarity. Leave "Unlimited" to ignore cost constraints.
-          </p>
-          <div className="budget-grid">
-            <BudgetInput label="Common"   value={budget.common}   onChange={v => updateBudget('common', v)} />
-            <BudgetInput label="Uncommon" value={budget.uncommon} onChange={v => updateBudget('uncommon', v)} />
-            <BudgetInput label="Rare"     value={budget.rare}     onChange={v => updateBudget('rare', v)} />
-            <BudgetInput label="Mythic"   value={budget.mythic}   onChange={v => updateBudget('mythic', v)} />
-          </div>
+          {hasCollection ? (
+            <>
+              <p className="budget-note">
+                Set limits per rarity. Leave "Unlimited" to ignore cost constraints.
+              </p>
+              <div className="budget-grid">
+                <BudgetInput label="Common"   value={budget.common}   onChange={v => updateBudget('common', v)} />
+                <BudgetInput label="Uncommon" value={budget.uncommon} onChange={v => updateBudget('uncommon', v)} />
+                <BudgetInput label="Rare"     value={budget.rare}     onChange={v => updateBudget('rare', v)} />
+                <BudgetInput label="Mythic"   value={budget.mythic}   onChange={v => updateBudget('mythic', v)} />
+              </div>
+            </>
+          ) : (
+            <p className="budget-note budget-note--locked">
+              No collection loaded — budget is set to unlimited. The deck will be built from the full card pool; you'll need to craft anything you don't own.
+            </p>
+          )}
         </section>
       </div>
 

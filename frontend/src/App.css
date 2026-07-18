@@ -261,6 +261,7 @@ button { cursor: pointer; border: none; font: inherit; }
 .budget-num:disabled { opacity: .4; }
 .budget-toggle { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-dim); cursor: pointer; }
 .budget-toggle input { cursor: pointer; }
+.budget-note--locked { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; color: var(--text-dim); font-style: italic; }
 
 /* ── Compare Step ──────────────────────────────────────────────────────── */
 .variants-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
