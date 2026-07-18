@@ -142,7 +142,7 @@ function App() {
           </div>
         )}
 
-        {step === 'import' && <ImportStep onNext={handleImport} onSkip={handleSkip} />}
+        {step === 'import' && <ImportStep onNext={handleImport} onSkip={handleSkip} hasAnalysis={analysisResult !== null} />}
 
         {step === 'analyze' && request && (
           <AnalyzeStep

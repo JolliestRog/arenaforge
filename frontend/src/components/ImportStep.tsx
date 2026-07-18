@@ -5,6 +5,7 @@ import { parseCollection } from '../lib/parser';
 interface Props {
   onNext: (collection: OwnedCard[]) => void;
   onSkip: () => void;
+  hasAnalysis?: boolean;
 }
 
 type ImportMode = 'landing' | 'paste' | 'done';
@@ -112,11 +113,13 @@ function PasteView({
 
 function DoneView({
   parsed,
+  hasAnalysis,
   onContinue,
   onReimport,
   onPurge,
 }: {
   parsed: OwnedCard[];
+  hasAnalysis: boolean;
   onContinue: () => void;
   onReimport: () => void;
   onPurge: () => void;
@@ -150,7 +153,7 @@ function DoneView({
 
       <div className="done-ctas">
         <button className="btn-primary btn-analyze" onClick={onContinue}>
-          Analyze my collection
+          {hasAnalysis ? 'View analysis →' : 'Analyze my collection'}
         </button>
         <button className="btn-ghost" onClick={onReimport}>
           Re-import collection
@@ -162,7 +165,7 @@ function DoneView({
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function ImportStep({ onNext, onSkip }: Props) {
+export default function ImportStep({ onNext, onSkip, hasAnalysis = false }: Props) {
   const [mode, setMode] = useState<ImportMode>('landing');
   const [raw, setRaw] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
@@ -232,6 +235,7 @@ export default function ImportStep({ onNext, onSkip }: Props) {
   return (
     <DoneView
       parsed={parsed!}
+      hasAnalysis={hasAnalysis}
       onContinue={() => onNext(parsed!)}
       onReimport={handleReimport}
       onPurge={handlePurge}
