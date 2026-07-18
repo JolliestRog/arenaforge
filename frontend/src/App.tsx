@@ -58,6 +58,8 @@ function App() {
       profile: 'satoru_toolbox',
       wildcardBudget: { common: Infinity, uncommon: Infinity, rare: Infinity, mythic: Infinity },
     };
+    analysisCacheRef.current.clear();
+    setAnalysisResult(null);
     setRequest(r => r ? { ...r, collection } : defaultReq);
     setStep('analyze');
   }

@@ -11,65 +11,11 @@ from solver.model import (
     BuildResult, DeckCard, Variant, _score_card, arena_export,
     build_variant, estimate_functional_hand,
 )
-from solver.profiles import Profile, PROFILES, RoleTarget
+from solver.profiles import PROFILES
 from solver.roles import infer_roles
+from solver.strategy_profile import profile_from_strategy_rows
 
 router = APIRouter(prefix="/build", tags=["build"])
-
-# Map strategy DB role names → solver role names (subset that CP-SAT can enforce)
-_STRATEGY_ROLE_MAP = {
-    "draw": "draw",
-    "ramp": "ramp",
-    "counterspell": "counterspell",
-    "protection": "protection",
-    "finisher": "finisher",
-    "selection": "selection",
-    "recursion": "recursion",
-    "removal": "creature_removal",
-    "board_wipe": "sweeper",
-}
-
-_LAND_TARGET_BY_MACRO = {
-    "tempo": 34, "aggro": 34, "control": 38, "ramp": 38, "midrange": 36,
-}
-
-
-def _profile_from_strategy(strategy_id: str, display_name: str, macro_plan: str) -> Profile:
-    """Synthesize a Profile from strategy DB role targets."""
-    role_target_rows = strategy_db.fetch_strategy_role_targets(strategy_id)
-    role_targets: dict[str, RoleTarget] = {}
-    role_weights: dict[str, float] = {}
-    for row in role_target_rows:
-        solver_role = _STRATEGY_ROLE_MAP.get(row["role"])
-        if solver_role:
-            role_targets[solver_role] = RoleTarget(
-                min=row["min_count"], preferred=row["preferred_count"]
-            )
-            role_weights[solver_role] = row["weight"] * 10  # 0.0-0.9 → 0-9
-
-    land_target = _LAND_TARGET_BY_MACRO.get(macro_plan, 36)
-
-    # Always ensure draw and ramp have at least a soft floor
-    if "draw" not in role_targets:
-        role_targets["draw"] = RoleTarget(min=6, preferred=10)
-        role_weights["draw"] = 5.0
-    if "ramp" not in role_targets:
-        role_targets["ramp"] = RoleTarget(min=5, preferred=8)
-        role_weights["ramp"] = 5.0
-
-    priority = sorted(role_weights, key=lambda r: -role_weights[r])[:3]
-    return Profile(
-        id=strategy_id,
-        commander="",
-        display_name=display_name,
-        description="",
-        land_target=land_target,
-        role_targets=role_targets,
-        role_weights=role_weights,
-        synergy_tag="",
-        priority_roles=priority,
-        functional_hand_definition="viable mana + key role pieces",
-    )
 
 # ── Request models ─────────────────────────────────────────────────────────────
 
@@ -317,7 +263,12 @@ def build(req: BuildRequest):
         if row is None:
             raise HTTPException(status_code=422, detail=f"Unknown profile: {req.profile}")
         strategy_name = row["display_name"]
-        profile = _profile_from_strategy(row["id"], row["display_name"], row["macro_plan"])
+        profile = profile_from_strategy_rows(
+            row["id"],
+            row["display_name"],
+            row["macro_plan"],
+            strategy_db.fetch_strategy_role_targets(row["id"]),
+        )
         strategy_weights = strategy_db.fetch_strategy_card_weights(req.commander, req.profile)
     else:
         strategy_name = profile.display_name

@@ -177,6 +177,10 @@ def test_response_has_all_required_components():
         assert rec.strategy_role_coverage is not None
         assert rec.commander_owned        is not None
         assert rec.confidence             is not None
+        assert 0.0 <= rec.deck_quality <= 100.0
+        assert 0.0 <= rec.collection_readiness <= 100.0
+        assert rec.completion_cost_points >= 0
+        assert rec.ranking_reason
         # strategy_role_coverage must be non-empty for a DB-backed strategy
         assert len(rec.strategy_role_coverage) > 0, (
             f"{rec.name!r} has empty strategy_role_coverage"
@@ -189,6 +193,36 @@ def test_strategy_filter_echoed_in_response():
     for flt in ("All", "Control", "Midrange", "Tempo"):
         result = _call(EMPTY_FIXTURE, flt)
         assert result.strategy_filter == flt
+
+
+def test_owned_and_unowned_lanes_are_explicit_unique_and_compatible():
+    result = _call(CONTROL_FIXTURE, "All")
+    assert result.ranking_version
+    assert all(rec.commander_owned for rec in result.owned_recommendations)
+    assert all(not rec.commander_owned for rec in result.unowned_recommendations)
+    names = [rec.name for rec in result.recommendations]
+    assert len(names) == len(set(names))
+    assert result.recommendations == (
+        result.owned_recommendations + result.unowned_recommendations
+    )
+
+
+def test_unowned_lane_is_cost_sorted_before_provisional_fillers():
+    result = _call(CONTROL_FIXTURE, "All")
+    qualified = [rec for rec in result.unowned_recommendations if not rec.provisional]
+    assert [rec.completion_cost_points for rec in qualified] == sorted(
+        rec.completion_cost_points for rec in qualified
+    )
+
+
+def test_collection_names_are_casefolded_and_unknown_cards_reported():
+    result = _call([
+        {"name": "  counterSPELL  ", "count": 1},
+        {"name": "Definitely Not A Real Card", "count": 1},
+    ])
+    assert result.total_unique == 1
+    assert result.total_copies == 1
+    assert result.unmatched_cards == ["Definitely Not A Real Card"]
 
 
 # ── Unit: helpers (no DB needed for these) ────────────────────────────────────
@@ -231,6 +265,32 @@ def test_wildcard_cost_counting():
     assert cost.mythic == 2
     assert cost.common == 0
     assert cost.uncommon == 0
+
+
+def test_unowned_commander_is_included_in_completion_cost():
+    from routers.analyze_v2 import _completion_cost
+    commander = {"rarity": "rare"}
+    cost, points = _completion_cost([], commander, commander_owned=False)
+    assert cost.rare == 1
+    assert points == 8
+
+
+def test_quality_solver_scoring_is_ownership_neutral():
+    from solver.model import _score_card
+    from solver.profiles import Profile, RoleTarget
+
+    card = {
+        "name": "Test", "is_land": False, "rarity": "mythic", "cmc": 2,
+    }
+    profile = Profile(
+        id="test", commander="", display_name="", description="",
+        land_target=36, role_targets={"draw": RoleTarget(1, 1)},
+        role_weights={"draw": 5}, synergy_tag="", priority_roles=["draw"],
+        functional_hand_definition="",
+    )
+    owned = _score_card(card, ["draw"], profile, True, "quality", 0.5)
+    unowned = _score_card(card, ["draw"], profile, False, "quality", 0.5)
+    assert owned == unowned
 
 
 def test_invalid_strategy_filter_raises():

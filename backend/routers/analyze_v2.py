@@ -1,23 +1,9 @@
-"""POST /analyze/v2 — Collection Analysis V2.
-
-Replaces V1's top-300 pre-filter with:
-  1. Hard-gate: strategy-DB pairs matching the requested strategy_filter.
-  2. Fast-score ALL pairs in the filter (intrinsic_fit × 0.70 + collection_coverage × 0.30).
-  3. CP-SAT wildcard-variant build for top-15 finalists (parallel, deterministic 1-worker).
-  4. Return up to 10 results with fully separated score components.
-
-Score components returned (never combined into an opaque score):
-  build_readiness        — 0-100, weighted role-target satisfaction in the built 99-card deck
-  wildcard_cost_by_rarity — common/uncommon/rare/mythic wildcards needed to complete the deck
-  mana_readiness         — 0-100, fixing + ramp adequacy vs commander CI complexity
-  strategy_role_coverage — per-role target/deck_count breakdown
-  commander_owned        — bool
-  confidence             — strategy DB confidence value 0-1
-"""
+"""Collection analysis with separate owned-best and unowned-nearest rankings."""
 
 from __future__ import annotations
 
 import json
+import logging
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -27,101 +13,73 @@ from pydantic import BaseModel
 import strategy_db
 from db import get_db
 from routers.analyze import (
-    ColorStrength, KeyCard, OwnedCard,
-    _build_ci_pools, _color_strength, _role_counts, _summary, _type_distribution,
+    ColorStrength,
+    KeyCard,
+    OwnedCard,
+    _build_ci_pools,
+    _color_strength,
+    _role_counts,
+    _summary,
+    _type_distribution,
 )
-from solver.model import build_variant, DeckCard
-from solver.profiles import Profile, PROFILES, RoleTarget
+from solver.model import DeckCard, WC_VALUES, build_variant
 from solver.roles import infer_roles
+from solver.strategy_profile import STRATEGY_ROLE_MAP, profile_from_strategy_rows
 
-# Legacy commanders not in strategy DB — injected when owned regardless of filter.
-# Maps commander name → (profile_id, macro_plan_for_filter_matching)
-_LEGACY_COMMANDERS: dict[str, tuple[str, str]] = {
-    "A-Satoru Umezawa":           ("satoru_toolbox", "tempo"),
-    "Yuriko, the Tiger's Shadow": ("yuriko_tempo",   "tempo"),
-    "Talion, the Kindly Lord":    ("talion_control",  "control"),
-    "A-Yuffie Kisaragi":          ("yuffie_ninjutsu", "tempo"),
-}
-
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/analyze/v2", tags=["analyze-v2"])
 
-# ── Constants ───────────────────────────────────────────────────────────────────
-
 COVERAGE_CARD_LIMIT = 60
-N_FINALISTS = 15
-N_RESULTS = 10
-BUILD_TIME_LIMIT_S = 4.0
+FINALISTS_PER_LANE = 12
+RESULTS_PER_LANE = 6
+BUILD_TIME_LIMIT_S = 3.0
 MAX_WORKERS = 4
+QUALITY_FLOOR = 55.0
+RANKING_VERSION = "owned-best-unowned-nearest-v1"
 
 FILTER_TO_MACRO: dict[str, str | None] = {
-    "All":      None,
-    "Control":  "control",
-    "Tempo":    "tempo",
-    "Aggro":    "aggro",
+    "All": None,
+    "Control": "control",
+    "Tempo": "tempo",
+    "Aggro": "aggro",
     "Midrange": "midrange",
-    "Ramp":     "ramp",
-}
-
-_STRATEGY_ROLE_MAP: dict[str, str] = {
-    "draw":              "draw",
-    "ramp":              "ramp",
-    "counterspell":      "counterspell",
-    "protection":        "protection",
-    "finisher":          "finisher",
-    "selection":         "selection",
-    "recursion":         "recursion",
-    "removal":           "creature_removal",
-    "board_wipe":        "sweeper",
-    "token_maker":       "etb_payoff",
-    "artifact_payoff":   "engine",
-    "enchantment_payoff":"engine",
-    "tap_enabler":       "evasive_enabler",
-    "attack_payoff":     "engine",
-    "land_payoff":       "engine",
-    "sacrifice_outlet":  "engine",
-    "death_payoff":      "engine",
-    "graveyard_filler":  "engine",
-    "counters_enabler":  "engine",
-    "counters_payoff":   "engine",
-    "lifegain_enabler":  "engine",
-    "lifegain_payoff":   "engine",
-    "anthem":            "finisher",
-    "untap_denial":      "interaction",
-}
-
-_LAND_TARGET_BY_MACRO: dict[str, int] = {
-    "tempo": 34, "aggro": 34, "control": 38, "ramp": 38, "midrange": 36,
+    "Ramp": "ramp",
 }
 
 _ROLE_DISPLAY: dict[str, str] = {
-    "ramp":              "Ramp",
-    "draw":              "Card Draw",
-    "removal":           "Removal",
-    "counterspell":      "Counterspells",
-    "board_wipe":        "Board Wipes",
-    "finisher":          "Finishers",
-    "protection":        "Protection",
-    "token_maker":       "Token Production",
-    "sacrifice_outlet":  "Sacrifice Outlets",
-    "death_payoff":      "Death Payoffs",
-    "recursion":         "Recursion",
-    "graveyard_filler":  "Graveyard Filling",
-    "attack_payoff":     "Attack Payoffs",
-    "enchantment_payoff":"Enchantment Payoffs",
-    "artifact_payoff":   "Artifact Payoffs",
-    "counters_enabler":  "Counter Enablers",
-    "counters_payoff":   "Counter Payoffs",
-    "lifegain_enabler":  "Lifegain Enablers",
-    "lifegain_payoff":   "Lifegain Payoffs",
-    "land_payoff":       "Land Payoffs",
-    "tap_enabler":       "Tap Enablers",
-    "untap_denial":      "Untap Denial",
-    "anthem":            "Anthems",
-    "selection":         "Card Selection",
+    "ramp": "Ramp",
+    "draw": "Card Draw",
+    "removal": "Removal",
+    "counterspell": "Counterspells",
+    "board_wipe": "Board Wipes",
+    "finisher": "Finishers",
+    "protection": "Protection",
+    "token_maker": "Token Production",
+    "sacrifice_outlet": "Sacrifice Outlets",
+    "death_payoff": "Death Payoffs",
+    "recursion": "Recursion",
+    "graveyard_filler": "Graveyard Filling",
+    "attack_payoff": "Attack Payoffs",
+    "enchantment_payoff": "Enchantment Payoffs",
+    "artifact_payoff": "Artifact Payoffs",
+    "counters_enabler": "Counter Enablers",
+    "counters_payoff": "Counter Payoffs",
+    "lifegain_enabler": "Lifegain Enablers",
+    "lifegain_payoff": "Lifegain Payoffs",
+    "land_payoff": "Land Payoffs",
+    "tap_enabler": "Tap Enablers",
+    "untap_denial": "Untap Denial",
+    "anthem": "Anthems",
+    "selection": "Card Selection",
+    "evasive_enabler": "Evasive Enablers",
+    "ninjutsu_payoff": "Ninjutsu Payoffs",
+    "topdeck_setup": "Topdeck Setup",
+    "blink_enabler": "Blink Effects",
+    "blink_payoff": "ETB Payoffs",
 }
 
+_STATUS_RANK = {"recommended": 3, "viable": 2, "experimental": 1, "rejected": 0}
 
-# ── Request / Response Models ────────────────────────────────────────────────────
 
 class AnalyzeRequestV2(BaseModel):
     collection: list[OwnedCard]
@@ -164,6 +122,13 @@ class CommanderRecommendationV2(BaseModel):
     key_missing: list[KeyCard]
     strengths: list[str]
     deficits: list[str]
+    deck_quality: float
+    collection_readiness: float
+    completion_cost_by_rarity: WildcardCostByRarity
+    completion_cost_points: int
+    commander_wildcard_required: bool
+    provisional: bool
+    ranking_reason: str
 
 
 class AnalysisResultV2(BaseModel):
@@ -175,101 +140,75 @@ class AnalysisResultV2(BaseModel):
     strongest_colors: list[str]
     summary: str
     strategy_filter: str
+    ranking_version: str
+    unmatched_cards: list[str]
+    analysis_warnings: list[str]
+    owned_recommendations: list[CommanderRecommendationV2]
+    unowned_recommendations: list[CommanderRecommendationV2]
+    # Compatibility field for existing clients during the V2 transition.
     recommendations: list[CommanderRecommendationV2]
-
-
-# ── Scoring helpers ──────────────────────────────────────────────────────────────
-
-def _profile_from_rows(
-    strategy_id: str,
-    display_name: str,
-    macro_plan: str,
-    role_target_rows: list[dict],
-) -> Profile:
-    role_targets: dict[str, RoleTarget] = {}
-    role_weights: dict[str, float] = {}
-    for row in role_target_rows:
-        solver_role = _STRATEGY_ROLE_MAP.get(row["role"], row["role"])
-        role_targets[solver_role] = RoleTarget(
-            min=row["min_count"], preferred=row["preferred_count"]
-        )
-        role_weights[solver_role] = row["weight"] * 10
-
-    land_target = _LAND_TARGET_BY_MACRO.get(macro_plan, 36)
-    if "draw" not in role_targets:
-        role_targets["draw"] = RoleTarget(min=6, preferred=10)
-        role_weights["draw"] = 5.0
-    if "ramp" not in role_targets:
-        role_targets["ramp"] = RoleTarget(min=5, preferred=8)
-        role_weights["ramp"] = 5.0
-
-    priority = sorted(role_weights, key=lambda r: -role_weights[r])[:3]
-    return Profile(
-        id=strategy_id,
-        commander="",
-        display_name=display_name,
-        description="",
-        land_target=land_target,
-        role_targets=role_targets,
-        role_weights=role_weights,
-        synergy_tag="",
-        priority_roles=priority,
-        functional_hand_definition="viable mana + key role pieces",
-    )
 
 
 def _mana_readiness(cards: list[DeckCard], color_identity: list[str]) -> float:
     n_colors = max(len(color_identity), 1)
     fixing_lands = sum(1 for dc in cards if dc.card["is_land"] and "fixing" in dc.roles)
-    ramp_count   = sum(1 for dc in cards if not dc.card["is_land"] and "ramp" in dc.roles)
-    land_count   = sum(1 for dc in cards if dc.card["is_land"])
-
+    ramp_count = sum(1 for dc in cards if not dc.card["is_land"] and "ramp" in dc.roles)
+    land_count = sum(1 for dc in cards if dc.card["is_land"])
     ramp_target = {1: 5, 2: 7, 3: 9, 4: 11, 5: 13}.get(n_colors, 7)
-    ramp_score  = min(ramp_count / max(ramp_target, 1), 1.0)
-
+    ramp_score = min(ramp_count / max(ramp_target, 1), 1.0)
     if n_colors == 1:
         return round(ramp_score * 100, 1)
-
     fixing_target = {2: 6, 3: 10, 4: 14, 5: 18}.get(n_colors, 10)
-    fixing_score  = min(fixing_lands / max(fixing_target, 1), 1.0)
-    land_quality  = fixing_lands / max(land_count, 1)
-
+    fixing_score = min(fixing_lands / max(fixing_target, 1), 1.0)
+    land_quality = fixing_lands / max(land_count, 1)
     return round((0.4 * fixing_score + 0.3 * land_quality + 0.3 * ramp_score) * 100, 1)
 
 
 def _wildcard_cost(cards: list[DeckCard]) -> WildcardCostByRarity:
-    cost = WildcardCostByRarity()
+    values = WildcardCostByRarity()
     for dc in cards:
-        if dc.wildcard_cost == "common":    cost.common += 1
-        elif dc.wildcard_cost == "uncommon":cost.uncommon += 1
-        elif dc.wildcard_cost == "rare":    cost.rare += 1
-        elif dc.wildcard_cost == "mythic":  cost.mythic += 1
-    return cost
+        rarity = dc.wildcard_cost
+        if rarity in {"common", "uncommon", "rare", "mythic"}:
+            setattr(values, rarity, getattr(values, rarity) + 1)
+    return values
+
+
+def _completion_cost(
+    cards: list[DeckCard],
+    commander: dict,
+    commander_owned: bool,
+) -> tuple[WildcardCostByRarity, int]:
+    values = _wildcard_cost(cards)
+    if not commander_owned and commander["rarity"] in {"common", "uncommon", "rare", "mythic"}:
+        rarity = commander["rarity"]
+        setattr(values, rarity, getattr(values, rarity) + 1)
+    points = sum(
+        getattr(values, rarity) * WC_VALUES[rarity]
+        for rarity in ("common", "uncommon", "rare", "mythic")
+    )
+    return values, points
 
 
 def _build_readiness(
     cards: list[DeckCard],
     role_target_rows: list[dict],
 ) -> tuple[float, list[RoleCoverageItem]]:
-    deck_role_counts: dict[str, int] = defaultdict(int)
+    counts: dict[str, int] = defaultdict(int)
     for dc in cards:
         for role in dc.roles:
-            deck_role_counts[role] += 1
+            counts[role] += 1
 
     items: list[RoleCoverageItem] = []
-    total_weight  = 0.0
     weighted_score = 0.0
-
+    total_weight = 0.0
     for row in role_target_rows:
-        solver_role = _STRATEGY_ROLE_MAP.get(row["role"], row["role"])
-        count     = deck_role_counts.get(solver_role, 0)
+        solver_role = STRATEGY_ROLE_MAP.get(row["role"], row["role"])
+        count = counts.get(solver_role, 0)
         preferred = row["preferred_count"]
-        min_count = row["min_count"]
-        weight    = row["weight"]
-
+        minimum = row["min_count"]
+        weight = row["weight"]
         meets_preferred = count >= preferred
-        meets_minimum   = count >= min_count
-
+        meets_minimum = count >= minimum
         items.append(RoleCoverageItem(
             role=row["role"],
             target=preferred,
@@ -277,112 +216,18 @@ def _build_readiness(
             meets_minimum=meets_minimum,
             meets_preferred=meets_preferred,
         ))
-        total_weight  += weight
+        total_weight += weight
         if meets_preferred:
-            weighted_score += weight * 1.0
+            weighted_score += weight
         elif meets_minimum:
             weighted_score += weight * 0.6
-
-    readiness = (weighted_score / max(total_weight, 0.001)) * 100
-    return round(readiness, 1), items
+    return round(100 * weighted_score / max(total_weight, 0.001), 1), items
 
 
-def _profile_role_target_rows(profile: Profile) -> list[dict]:
-    """Convert a hardcoded Profile's role_targets to the same format as strategy DB rows."""
-    rows = []
-    for role, rt in profile.role_targets.items():
-        rows.append({
-            "role": role,
-            "min_count": rt.min,
-            "preferred_count": rt.preferred,
-            "weight": profile.role_weights.get(role, 5.0) / 10.0,
-        })
-    return rows
-
-
-def _build_legacy_rec(
-    cmdr_name: str,
-    profile_id: str,
-    owned_set: set[str],
-    cards_by_name: dict[str, dict],
-    ci_pools: dict,
-    roles_cache: dict[str, list[str]],
-) -> CommanderRecommendationV2 | None:
-    """Build a single recommendation for a hardcoded-profile legacy commander."""
-    profile = PROFILES.get(profile_id)
-    if profile is None:
-        return None
-    cmdr_card = cards_by_name.get(cmdr_name)
-    if cmdr_card is None:
-        return None
-
-    cmdr_ci = sorted(json.loads(cmdr_card["color_identity"]))
-    ci_key = frozenset(cmdr_ci)
-    pool = [c for c in ci_pools.get(ci_key, []) if c["name"] != cmdr_name]
-    if len(pool) < 50:
-        return None
-
-    role_target_rows = _profile_role_target_rows(profile)
-
-    result = build_variant(
-        commander=cmdr_card,
-        candidates=pool,
-        owned_set=owned_set,
-        profile=profile,
-        wildcard_budget=None,
-        variant="wildcard",
-        time_limit_s=BUILD_TIME_LIMIT_S,
-        strategy_weights=None,
-    )
-    if not result.cards:
-        return None
-
-    # Compute key_owned / key_missing from pool (top 30 by score, non-land)
-    scored = [
-        (c, sum(roles_cache.get(c["name"], []).__contains__(r) * profile.role_weights.get(r, 1.0)
-                for r in profile.priority_roles))
-        for c in pool if not c["is_land"]
-    ]
-    scored.sort(key=lambda x: -x[1])
-    top30 = scored[:30]
-    key_owned   = [c["name"] for c, _ in top30 if c["name"] in owned_set][:5]
-    key_missing = [KeyCard(name=c["name"], rarity=c["rarity"])
-                   for c, _ in top30 if c["name"] not in owned_set][:5]
-
-    build_ready, role_coverage = _build_readiness(result.cards, role_target_rows)
-    wc_cost    = _wildcard_cost(result.cards)
-    mana_ready = _mana_readiness(result.cards, cmdr_ci)
-    strengths, deficits = _strengths_deficits(role_coverage)
-
-    return CommanderRecommendationV2(
-        name=cmdr_name,
-        color_identity=cmdr_ci,
-        cmc=cmdr_card["cmc"],
-        rarity=cmdr_card["rarity"],
-        type_line=cmdr_card["type_line"],
-        owned=cmdr_name in owned_set,
-        strategy_id=profile_id,
-        strategy_name=profile.display_name,
-        strategy_intrinsic_fit=1.0,
-        strategy_collection_coverage=len(key_owned) / max(len(top30), 1),
-        build_readiness=build_ready,
-        wildcard_cost_by_rarity=wc_cost,
-        mana_readiness=mana_ready,
-        strategy_role_coverage=role_coverage,
-        commander_owned=cmdr_name in owned_set,
-        confidence=1.0,
-        key_owned=key_owned,
-        key_missing=key_missing,
-        strengths=strengths[:4],
-        deficits=deficits[:4],
-    )
-
-
-def _strengths_deficits(
-    role_coverage: list[RoleCoverageItem],
-) -> tuple[list[str], list[str]]:
-    strengths, deficits = [], []
-    for item in role_coverage:
+def _strengths_deficits(items: list[RoleCoverageItem]) -> tuple[list[str], list[str]]:
+    strengths: list[str] = []
+    deficits: list[str] = []
+    for item in items:
         label = _ROLE_DISPLAY.get(item.role, item.role.replace("_", " ").title())
         if item.meets_preferred:
             strengths.append(f"Strong {label} ({item.deck_count}/{item.target})")
@@ -391,299 +236,425 @@ def _strengths_deficits(
     return strengths, deficits
 
 
-# ── Endpoint ─────────────────────────────────────────────────────────────────────
+def _weighted_collection_readiness(
+    cards: list[DeckCard],
+    strategy_weights: dict[str, float],
+) -> float:
+    owned_weight = 0.0
+    total_weight = 0.0
+    for dc in cards:
+        if dc.card["is_land"]:
+            continue
+        weight = max(strategy_weights.get(dc.card["name"], 0.0), 0.20)
+        total_weight += weight
+        if dc.owned:
+            owned_weight += weight
+    return round(100 * owned_weight / max(total_weight, 0.001), 1)
+
+
+def _deck_quality(
+    cards: list[DeckCard],
+    strategy_weights: dict[str, float],
+    role_readiness: float,
+    mana_readiness: float,
+    confidence: float,
+) -> float:
+    nonlands = [dc for dc in cards if not dc.card["is_land"]]
+    if nonlands:
+        card_signal = sum(
+            max(strategy_weights.get(dc.card["name"], 0.0), 0.20)
+            for dc in nonlands
+        ) / len(nonlands)
+    else:
+        card_signal = 0.0
+    quality = (
+        0.50 * card_signal * 100
+        + 0.25 * role_readiness
+        + 0.15 * mana_readiness
+        + 0.10 * min(max(confidence, 0.0), 1.0) * 100
+    )
+    return round(min(max(quality, 0.0), 100.0), 1)
+
+
+def _normalize_collection(
+    collection: list[OwnedCard],
+    cards_by_casefold: dict[str, dict],
+) -> tuple[set[str], list[str], int]:
+    owned: set[str] = set()
+    unmatched: set[str] = set()
+    total_copies = 0
+    for item in collection:
+        if item.count < 1:
+            continue
+        normalized = " ".join(item.name.split())
+        card = cards_by_casefold.get(normalized.casefold())
+        if card is None:
+            unmatched.add(normalized)
+            continue
+        owned.add(card["name"])
+        total_copies += item.count
+    return owned, sorted(unmatched), total_copies
+
 
 @router.post("", response_model=AnalysisResultV2)
 def analyze_v2(req: AnalyzeRequestV2):
-    strategy_filter = req.strategy_filter
-    if strategy_filter not in FILTER_TO_MACRO:
+    if req.strategy_filter not in FILTER_TO_MACRO:
         raise HTTPException(
             status_code=422,
-            detail=f"Unknown strategy_filter: {strategy_filter!r}. "
-                   f"Valid values: {sorted(FILTER_TO_MACRO)}",
+            detail=f"Unknown strategy_filter: {req.strategy_filter!r}. "
+            f"Valid values: {sorted(FILTER_TO_MACRO)}",
         )
-    target_macro = FILTER_TO_MACRO[strategy_filter]
+    target_macro = FILTER_TO_MACRO[req.strategy_filter]
 
-    owned_set    = {c.name for c in req.collection if c.count >= 1}
-    total_unique = len(owned_set)
-    total_copies = sum(c.count for c in req.collection)
-
-    # Load cards once — all computations share this snapshot.
     with get_db() as conn:
         all_rows = conn.execute("SELECT * FROM cards ORDER BY name").fetchall()
-    all_cards:    list[dict] = [dict(r) for r in all_rows]
-    cards_by_name: dict[str, dict] = {c["name"]: c for c in all_cards}
-    roles_cache:  dict[str, list[str]] = {c["name"]: infer_roles(c) for c in all_cards}
-
-    owned_cards   = [c for c in all_cards if c["name"] in owned_set]
+    all_cards = [dict(row) for row in all_rows]
+    cards_by_name = {card["name"]: card for card in all_cards}
+    cards_by_casefold = {card["name"].casefold(): card for card in all_cards}
+    owned_set, unmatched_cards, total_copies = _normalize_collection(
+        req.collection, cards_by_casefold
+    )
+    roles_cache = {card["name"]: infer_roles(card) for card in all_cards}
+    owned_cards = [card for card in all_cards if card["name"] in owned_set]
     color_strength = _color_strength(owned_cards)
     strongest = sorted(
         "WUBRG",
-        key=lambda col: next(
+        key=lambda color: next(
             cs.owned + cs.rares * 2 + cs.mythics * 3
-            for cs in color_strength if cs.color == col
+            for cs in color_strength if cs.color == color
         ),
         reverse=True,
     )
-    type_dist      = _type_distribution(owned_cards)
+    type_dist = _type_distribution(owned_cards)
     role_counts_all = _role_counts(owned_cards, roles_cache)
-    summary        = _summary(color_strength, role_counts_all, list(strongest))
-    ci_pools       = _build_ci_pools(all_cards)
+    summary = _summary(color_strength, role_counts_all, list(strongest))
+    ci_pools = _build_ci_pools(all_cards)
+    warnings: list[str] = []
 
-    # ── Phase 1: fetch ALL strategy DB pairs in the requested filter ─────────────
     with strategy_db.get_strategy_db() as s_conn:
         if s_conn is None:
             raise HTTPException(status_code=503, detail="Strategy DB unavailable")
-
         macro_clause = " AND st.macro_plan = ?" if target_macro else ""
-        macro_params = [target_macro] if target_macro else []
-
+        params = [target_macro] if target_macro else []
         pair_rows = s_conn.execute(
             f"""
-            SELECT c.name           AS commander_name,
-                   c.cmc            AS commander_cmc,
-                   c.rarity         AS commander_rarity,
-                   c.type_line      AS commander_type,
+            SELECT c.name AS commander_name,
+                   c.cmc AS commander_cmc,
+                   c.rarity AS commander_rarity,
+                   c.type_line AS commander_type,
                    c.color_identity AS commander_ci,
-                   c.oracle_id      AS commander_oracle_id,
+                   c.oracle_id AS commander_oracle_id,
                    cs.strategy_template_id,
                    cs.fit_score,
                    cs.confidence,
-                   st.display_name  AS strategy_name,
+                   cs.status,
+                   st.display_name AS strategy_name,
                    st.macro_plan
             FROM commander_strategies cs
-            JOIN cards c              ON c.oracle_id  = cs.commander_oracle_id
-            JOIN strategy_templates st ON st.id        = cs.strategy_template_id
-            WHERE cs.status IN ('recommended', 'viable', 'experimental')
-              AND c.is_commander = 1
-              AND c.arena_legal  = 1
-              {macro_clause}
-            ORDER BY cs.fit_score DESC
+            JOIN cards c ON c.oracle_id = cs.commander_oracle_id
+            JOIN strategy_templates st ON st.id = cs.strategy_template_id
+            WHERE c.is_commander = 1 AND c.arena_legal = 1 {macro_clause}
+            ORDER BY c.name, cs.fit_score DESC, cs.strategy_template_id
             """,
-            macro_params,
+            params,
         ).fetchall()
+        pairs = [dict(row) for row in pair_rows]
 
-        pairs = [dict(r) for r in pair_rows]
-        if not pairs:
-            return AnalysisResultV2(
-                total_unique=total_unique,
-                total_copies=total_copies,
-                color_strength=color_strength,
-                type_distribution=type_dist,
-                role_counts=role_counts_all,
-                strongest_colors=list(strongest[:3]),
-                summary=summary,
-                strategy_filter=strategy_filter,
-                recommendations=[],
-            )
-
-        # ── Batch-fetch top-COVERAGE_CARD_LIMIT cards per pair ────────────────
-        # Single SQL call using ROW_NUMBER() window function (SQLite ≥ 3.25).
-        top_card_rows = s_conn.execute(
+        top_rows = s_conn.execute(
             f"""
-            SELECT commander_oracle_id, strategy_template_id, card_name, card_rarity
+            SELECT commander_oracle_id, strategy_template_id,
+                   card_name, card_rarity, card_weight
             FROM (
                 SELECT csc.commander_oracle_id,
                        csc.strategy_template_id,
-                       cc.name  AS card_name,
+                       cc.name AS card_name,
                        cc.rarity AS card_rarity,
+                       csc.card_weight,
                        ROW_NUMBER() OVER (
                            PARTITION BY csc.commander_oracle_id, csc.strategy_template_id
-                           ORDER BY csc.card_weight DESC
+                           ORDER BY csc.card_weight DESC, cc.name
                        ) AS rn
                 FROM commander_strategy_cards csc
                 JOIN cards cc ON cc.oracle_id = csc.card_oracle_id
-                JOIN commander_strategies cs
-                     ON cs.commander_oracle_id  = csc.commander_oracle_id
-                    AND cs.strategy_template_id = csc.strategy_template_id
-                JOIN strategy_templates st ON st.id = cs.strategy_template_id
-                WHERE cs.status IN ('recommended', 'viable', 'experimental')
-                  AND cc.is_land = 0
-                  {macro_clause}
+                JOIN strategy_templates st ON st.id = csc.strategy_template_id
+                WHERE cc.is_land = 0 {macro_clause}
             )
             WHERE rn <= {COVERAGE_CARD_LIMIT}
             """,
-            macro_params,
+            params,
         ).fetchall()
+        top_by_pair: dict[tuple[str, str], list[tuple[str, str, float]]] = defaultdict(list)
+        for row in top_rows:
+            top_by_pair[(row["commander_oracle_id"], row["strategy_template_id"])].append(
+                (row["card_name"], row["card_rarity"], float(row["card_weight"]))
+            )
 
-        # Group into dict: (oid, sid) → [(card_name, card_rarity), ...]
-        top_cards_by_pair: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
-        for row in top_card_rows:
-            key = (row["commander_oracle_id"], row["strategy_template_id"])
-            top_cards_by_pair[key].append((row["card_name"], row["card_rarity"]))
-
-        # ── Fast-score all pairs (no CP-SAT here) ─────────────────────────────
-        scored_pairs: list[tuple[float, dict, list[str], list[KeyCard], float]] = []
+        scored: list[dict] = []
         for pair in pairs:
-            oid = pair["commander_oracle_id"]
-            sid = pair["strategy_template_id"]
-            top_cards = top_cards_by_pair.get((oid, sid), [])
+            commander_owned = pair["commander_name"] in owned_set
+            if not commander_owned and pair["status"] == "rejected":
+                continue
+            top_cards = top_by_pair.get(
+                (pair["commander_oracle_id"], pair["strategy_template_id"]), []
+            )
+            total_weight = sum(weight for _, _, weight in top_cards)
+            owned_weight = sum(
+                weight for name, _, weight in top_cards if name in owned_set
+            )
+            coverage = owned_weight / max(total_weight, 0.001)
+            estimated_cost = sum(
+                WC_VALUES.get(rarity, 8)
+                for name, rarity, _ in top_cards if name not in owned_set
+            )
+            if not commander_owned:
+                estimated_cost += WC_VALUES.get(pair["commander_rarity"], 8)
+            pair["top_cards"] = top_cards
+            pair["coverage"] = coverage
+            pair["estimated_cost"] = estimated_cost
+            pair["fast_quality"] = (
+                0.65 * pair["fit_score"]
+                + 0.20 * pair["confidence"]
+                + 0.15 * coverage
+            )
+            scored.append(pair)
 
-            key_owned   = [n for n, _ in top_cards if n in owned_set]
-            key_missing = [KeyCard(name=n, rarity=r) for n, r in top_cards if n not in owned_set]
-            coverage    = len(key_owned) / max(len(top_cards), 1)
-            fast_score  = 0.70 * pair["fit_score"] + 0.30 * coverage
+        # One strategy per commander before expensive solver work.
+        best_by_commander: dict[str, dict] = {}
+        for pair in scored:
+            current = best_by_commander.get(pair["commander_name"])
+            key = (
+                _STATUS_RANK[pair["status"]],
+                pair["fast_quality"],
+                pair["coverage"],
+                -pair["estimated_cost"],
+                pair["strategy_template_id"],
+            )
+            if current is None:
+                best_by_commander[pair["commander_name"]] = pair
+                continue
+            current_key = (
+                _STATUS_RANK[current["status"]],
+                current["fast_quality"],
+                current["coverage"],
+                -current["estimated_cost"],
+                current["strategy_template_id"],
+            )
+            if key > current_key:
+                best_by_commander[pair["commander_name"]] = pair
 
-            scored_pairs.append((fast_score, pair, key_owned, key_missing, coverage))
-
-        # Sort descending by fast_score, take top-N finalists for CP-SAT phase
-        scored_pairs.sort(key=lambda t: -t[0])
-        finalists = scored_pairs[:N_FINALISTS]
-
-        # ── Fetch role targets for finalist strategies ─────────────────────────
-        finalist_sids = {pair["strategy_template_id"] for _, pair, _, _, _ in finalists}
-        role_targets_by_sid: dict[str, list[dict]] = {}
-        for sid in finalist_sids:
-            rows = s_conn.execute(
-                "SELECT role, min_count, preferred_count, weight "
-                "FROM strategy_role_targets WHERE strategy_template_id = ?",
-                (sid,),
-            ).fetchall()
-            role_targets_by_sid[sid] = [dict(r) for r in rows]
-
-        # ── Fetch card weights for finalist pairs ──────────────────────────────
-        finalist_keys = {
-            (pair["commander_oracle_id"], pair["strategy_template_id"])
-            for _, pair, _, _, _ in finalists
-        }
-        sw_cache: dict[tuple[str, str], dict[str, float]] = {}
-        for oid, sid in finalist_keys:
-            rows = s_conn.execute(
-                """
-                SELECT cc.name AS card_name, csc.card_weight
-                FROM commander_strategy_cards csc
-                JOIN cards cc ON cc.oracle_id = csc.card_oracle_id
-                WHERE csc.commander_oracle_id  = ?
-                  AND csc.strategy_template_id = ?
-                  AND cc.is_land = 0
-                ORDER BY csc.card_weight DESC
-                """,
-                (oid, sid),
-            ).fetchall()
-            sw_cache[(oid, sid)] = {r["card_name"]: r["card_weight"] for r in rows}
-
-    # ── Phase 2: CP-SAT wildcard-variant build for each finalist ─────────────────
-    # num_workers=1 for determinism; parallel via Python threads.
-
-    def build_finalist(
-        _fast_score: float,
-        pair: dict,
-        key_owned_list: list[str],
-        key_missing_list: list[KeyCard],
-        coverage: float,
-    ) -> CommanderRecommendationV2 | None:
-        cmdr_name = pair["commander_name"]
-        cmdr_ci   = sorted(json.loads(pair["commander_ci"]))
-        ci_key    = frozenset(cmdr_ci)
-
-        pool = [c for c in ci_pools.get(ci_key, []) if c["name"] != cmdr_name]
-        if len(pool) < 50:
-            return None
-
-        cmdr_card = cards_by_name.get(cmdr_name)
-        if cmdr_card is None:
-            return None
-
-        sid              = pair["strategy_template_id"]
-        role_target_rows = role_targets_by_sid.get(sid, [])
-        oid              = pair["commander_oracle_id"]
-        strategy_weights = sw_cache.get((oid, sid), {})
-
-        profile = _profile_from_rows(
-            sid, pair["strategy_name"], pair["macro_plan"], role_target_rows,
+        owned_candidates = [
+            pair for pair in best_by_commander.values()
+            if pair["commander_name"] in owned_set
+        ]
+        unowned_candidates = [
+            pair for pair in best_by_commander.values()
+            if pair["commander_name"] not in owned_set
+        ]
+        owned_candidates.sort(
+            key=lambda pair: (
+                -_STATUS_RANK[pair["status"]],
+                -pair["fast_quality"],
+                pair["estimated_cost"],
+                pair["commander_name"],
+            )
+        )
+        unowned_candidates.sort(
+            key=lambda pair: (
+                pair["estimated_cost"],
+                -pair["fast_quality"],
+                pair["commander_name"],
+            )
+        )
+        finalists = (
+            owned_candidates[:FINALISTS_PER_LANE]
+            + unowned_candidates[:FINALISTS_PER_LANE]
         )
 
+        role_targets_by_sid: dict[str, list[dict]] = {}
+        sw_cache: dict[tuple[str, str], dict[str, float]] = {}
+        for pair in finalists:
+            sid = pair["strategy_template_id"]
+            if sid not in role_targets_by_sid:
+                role_targets_by_sid[sid] = [
+                    dict(row) for row in s_conn.execute(
+                        "SELECT role, min_count, preferred_count, weight "
+                        "FROM strategy_role_targets WHERE strategy_template_id = ?",
+                        (sid,),
+                    ).fetchall()
+                ]
+            key = (pair["commander_oracle_id"], sid)
+            if key not in sw_cache:
+                sw_cache[key] = {
+                    row["card_name"]: float(row["card_weight"])
+                    for row in s_conn.execute(
+                        """
+                        SELECT cc.name AS card_name, csc.card_weight
+                        FROM commander_strategy_cards csc
+                        JOIN cards cc ON cc.oracle_id = csc.card_oracle_id
+                        WHERE csc.commander_oracle_id = ?
+                          AND csc.strategy_template_id = ?
+                          AND cc.is_land = 0
+                        ORDER BY csc.card_weight DESC, cc.name
+                        """,
+                        key,
+                    ).fetchall()
+                }
+
+    def build_candidate(pair: dict) -> CommanderRecommendationV2 | None:
+        commander_name = pair["commander_name"]
+        commander = cards_by_name.get(commander_name)
+        if commander is None:
+            return None
+        colors = sorted(json.loads(pair["commander_ci"]))
+        pool = [
+            card for card in ci_pools.get(frozenset(colors), [])
+            if card["name"] != commander_name
+        ]
+        if len(pool) < 50:
+            return None
+        sid = pair["strategy_template_id"]
+        role_rows = role_targets_by_sid.get(sid, [])
+        weights = sw_cache.get((pair["commander_oracle_id"], sid), {})
+        profile = profile_from_strategy_rows(
+            sid, pair["strategy_name"], pair["macro_plan"], role_rows
+        )
         result = build_variant(
-            commander=cmdr_card,
+            commander=commander,
             candidates=pool,
             owned_set=owned_set,
             profile=profile,
             wildcard_budget=None,
-            variant="wildcard",
+            variant="quality",
             time_limit_s=BUILD_TIME_LIMIT_S,
-            strategy_weights=strategy_weights,
+            strategy_weights=weights,
         )
-
         if result.infeasible or not result.cards:
             return None
 
-        build_ready, role_coverage = _build_readiness(result.cards, role_target_rows)
-        wc_cost    = _wildcard_cost(result.cards)
-        mana_ready = _mana_readiness(result.cards, cmdr_ci)
+        role_readiness, role_coverage = _build_readiness(result.cards, role_rows)
+        mana_readiness = _mana_readiness(result.cards, colors)
+        collection_readiness = _weighted_collection_readiness(result.cards, weights)
+        quality = _deck_quality(
+            result.cards, weights, role_readiness, mana_readiness, pair["confidence"]
+        )
+        commander_owned = commander_name in owned_set
+        deck_cost = _wildcard_cost(result.cards)
+        completion_cost, completion_points = _completion_cost(
+            result.cards, commander, commander_owned
+        )
         strengths, deficits = _strengths_deficits(role_coverage)
-
+        top_cards = pair["top_cards"]
+        key_owned = [name for name, _, _ in top_cards if name in owned_set][:5]
+        key_missing = [
+            KeyCard(name=name, rarity=rarity)
+            for name, rarity, _ in top_cards if name not in owned_set
+        ][:5]
+        provisional = pair["status"] == "rejected" or quality < QUALITY_FLOOR
+        if commander_owned:
+            reason = (
+                f"{quality:.0f}% deck quality; {collection_readiness:.0f}% "
+                f"of the optimized nonland core already owned"
+            )
+        else:
+            reason = (
+                f"{completion_points} wildcard points to complete a "
+                f"{quality:.0f}% quality deck"
+            )
         return CommanderRecommendationV2(
-            name=cmdr_name,
-            color_identity=cmdr_ci,
+            name=commander_name,
+            color_identity=colors,
             cmc=pair["commander_cmc"],
             rarity=pair["commander_rarity"],
             type_line=pair["commander_type"],
-            owned=cmdr_name in owned_set,
+            owned=commander_owned,
             strategy_id=sid,
             strategy_name=pair["strategy_name"],
             strategy_intrinsic_fit=round(pair["fit_score"], 3),
-            strategy_collection_coverage=round(coverage, 3),
-            build_readiness=build_ready,
-            wildcard_cost_by_rarity=wc_cost,
-            mana_readiness=mana_ready,
+            strategy_collection_coverage=round(pair["coverage"], 3),
+            build_readiness=role_readiness,
+            wildcard_cost_by_rarity=deck_cost,
+            mana_readiness=mana_readiness,
             strategy_role_coverage=role_coverage,
-            commander_owned=cmdr_name in owned_set,
-            confidence=round(pair.get("confidence", 0.5), 3),
-            key_owned=key_owned_list[:5],
-            key_missing=key_missing_list[:5],
+            commander_owned=commander_owned,
+            confidence=round(pair["confidence"], 3),
+            key_owned=key_owned,
+            key_missing=key_missing,
             strengths=strengths[:4],
             deficits=deficits[:4],
+            deck_quality=quality,
+            collection_readiness=collection_readiness,
+            completion_cost_by_rarity=completion_cost,
+            completion_cost_points=completion_points,
+            commander_wildcard_required=not commander_owned,
+            provisional=provisional,
+            ranking_reason=reason,
         )
 
-    results: list[CommanderRecommendationV2] = []
+    built: list[CommanderRecommendationV2] = []
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(build_finalist, fs, pair, ko, km, cov): idx
-            for idx, (fs, pair, ko, km, cov) in enumerate(finalists)
-        }
+        futures = {executor.submit(build_candidate, pair): pair for pair in finalists}
         for future in as_completed(futures):
+            pair = futures[future]
             try:
-                rec = future.result()
-                if rec is not None:
-                    results.append(rec)
-            except Exception:
-                pass
+                recommendation = future.result()
+            except Exception as exc:
+                message = (
+                    f"Could not evaluate {pair['commander_name']} / "
+                    f"{pair['strategy_template_id']}: {exc}"
+                )
+                log.exception(message)
+                warnings.append(message)
+                continue
+            if recommendation is not None:
+                built.append(recommendation)
 
-    # Sort: build_readiness descending, break ties with strategy_intrinsic_fit
-    results.sort(key=lambda r: (-r.build_readiness, -r.strategy_intrinsic_fit))
-    results = results[:N_RESULTS]
-
-    # ── Inject legacy commanders if owned and not already present ─────────────
-    # Satoru, Yuriko, Talion, Yuffie have hardcoded profiles outside the strategy DB.
-    # They always appear in recommendations when the user owns them.
-    already_in = {r.name for r in results}
-    for legacy_name, (profile_id, macro) in _LEGACY_COMMANDERS.items():
-        if legacy_name not in owned_set:
-            continue
-        if legacy_name in already_in:
-            continue
-        # Only inject when filter matches the commander's macro or filter is "All"
-        if target_macro is not None and target_macro != macro:
-            continue
-        rec = _build_legacy_rec(
-            legacy_name, profile_id, owned_set,
-            cards_by_name, ci_pools, roles_cache,
+    owned_results = [rec for rec in built if rec.commander_owned]
+    unowned_results = [rec for rec in built if not rec.commander_owned]
+    owned_results.sort(
+        key=lambda rec: (
+            rec.provisional,
+            -(0.60 * rec.deck_quality + 0.40 * rec.collection_readiness),
+            rec.completion_cost_points,
+            -rec.deck_quality,
+            -rec.collection_readiness,
+            rec.name,
         )
-        if rec is not None:
-            results.append(rec)
-            already_in.add(legacy_name)
-
-    # Re-sort after injection — owned commanders float higher
-    results.sort(key=lambda r: (not r.commander_owned, -r.build_readiness, -r.strategy_intrinsic_fit))
+    )
+    qualified = [rec for rec in unowned_results if not rec.provisional]
+    provisional = [rec for rec in unowned_results if rec.provisional]
+    qualified.sort(
+        key=lambda rec: (
+            rec.completion_cost_points,
+            -rec.deck_quality,
+            -rec.collection_readiness,
+            rec.name,
+        )
+    )
+    provisional.sort(
+        key=lambda rec: (
+            -rec.deck_quality,
+            rec.completion_cost_points,
+            -rec.collection_readiness,
+            rec.name,
+        )
+    )
+    owned_results = owned_results[:RESULTS_PER_LANE]
+    unowned_results = (qualified + provisional)[:RESULTS_PER_LANE]
+    combined = owned_results + unowned_results
 
     return AnalysisResultV2(
-        total_unique=total_unique,
+        total_unique=len(owned_set),
         total_copies=total_copies,
         color_strength=color_strength,
         type_distribution=type_dist,
         role_counts=role_counts_all,
         strongest_colors=list(strongest[:3]),
         summary=summary,
-        strategy_filter=strategy_filter,
-        recommendations=results,
+        strategy_filter=req.strategy_filter,
+        ranking_version=RANKING_VERSION,
+        unmatched_cards=unmatched_cards,
+        analysis_warnings=warnings,
+        owned_recommendations=owned_results,
+        unowned_recommendations=unowned_results,
+        recommendations=combined,
     )

@@ -24,6 +24,7 @@ def _land_only(card): return card["is_land"] == 1
 def _creature_only(card): return card["is_creature"] == 1
 def _noncreature(card): return card["is_creature"] == 0
 def _low_cmc(card): return card["cmc"] <= 3
+def _high_cmc(card): return card["cmc"] >= 7
 def _any(card): return True
 
 
@@ -90,6 +91,10 @@ ROLE_RULES: List[Tuple[str, re.Pattern, float, Callable[[dict], bool]]] = [
 
     ("attack_payoff", re.compile(r"whenever (?:~|a creature you control) attacks", re.I), 0.75, _any),
     ("evasion", re.compile(r"flying|menace|trample|unblockable|can'?t be blocked", re.I), 0.6, _creature_only),
+    ("evasive_enabler", re.compile(r"flying|menace|shadow|skulk|unblockable|can'?t be blocked", re.I), 0.75, lambda c: _creature_only(c) and _low_cmc(c)),
+    ("ninjutsu_payoff", re.compile(r"\bninjutsu\b|\bninja\b", re.I), 0.9, _any),
+    ("topdeck_setup", re.compile(r"scry|surveil|look at the top|put .{0,30} on top of your library", re.I), 0.75, _any),
+    ("high_mana_reveal", re.compile(r".", re.S), 0.7, _high_cmc),
 
     ("tap_enabler", re.compile(r"tap (?:up to \w+|target|any number of|all|X) [^.]*permanent", re.I), 0.85, _any),
     ("tap_enabler", re.compile(r"tap (?:up to \w+|target|any number of|all|X) [^.]*creature", re.I), 0.7, _any),
@@ -166,12 +171,9 @@ def classify_all_cards(conn: sqlite3.Connection) -> int:
 # Commander/strategy card weights.
 # ---------------------------------------------------------------------------
 _QUALITY_BY_RARITY = {
-    "mythic":   0.85,
-    "rare":     0.7,
-    "uncommon": 0.55,
-    "common":   0.45,
-    "special":  0.5,
-    "bonus":    0.5,
+    # Rarity is a crafting cost, not evidence of card strength.
+    "mythic": 0.5, "rare": 0.5, "uncommon": 0.5, "common": 0.5,
+    "special": 0.5, "bonus": 0.5,
 }
 
 
@@ -202,13 +204,28 @@ def _interaction_score(card: dict, commander_tags: Dict[str, float], template) -
 
 
 def build_commander_strategy_cards(conn: sqlite3.Connection, per_pair_cap: int = 250) -> int:
-    """Precompute card weights for every accepted (recommended|viable) pair."""
+    """Precompute visible pairs plus one fallback pair per legal commander."""
     pairs = conn.execute(
-        "SELECT cs.commander_oracle_id AS cid, cs.strategy_template_id AS tid,"
-        "       c.color_identity AS colors, cs.fit_score AS fit"
-        " FROM commander_strategies cs"
-        " JOIN cards c ON c.oracle_id = cs.commander_oracle_id"
-        " WHERE cs.status IN ('recommended', 'viable')"
+        """
+        WITH ranked AS (
+            SELECT cs.commander_oracle_id AS cid,
+                   cs.strategy_template_id AS tid,
+                   c.color_identity AS colors,
+                   cs.fit_score AS fit,
+                   cs.status AS status,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY cs.commander_oracle_id
+                       ORDER BY cs.fit_score DESC, cs.strategy_template_id
+                   ) AS commander_rank
+            FROM commander_strategies cs
+            JOIN cards c ON c.oracle_id = cs.commander_oracle_id
+            WHERE c.is_commander = 1 AND c.arena_legal = 1
+        )
+        SELECT cid, tid, colors, fit
+        FROM ranked
+        WHERE status IN ('recommended', 'viable', 'experimental')
+           OR commander_rank = 1
+        """
     ).fetchall()
 
     if not pairs:

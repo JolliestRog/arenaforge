@@ -888,3 +888,24 @@ button { cursor: pointer; border: none; font: inherit; }
   .cmdr-card-grid { grid-template-columns: 1fr; }
   .guide-cards-grid { grid-template-columns: 1fr 1fr; }
 }
+.badge--craft {
+  border-color: rgba(230, 174, 71, 0.6);
+  color: #f2cc7a;
+}
+
+.badge--provisional {
+  border-color: rgba(180, 180, 195, 0.45);
+  color: #c9c9d2;
+}
+
+.cmdr-cost-points {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.cmdr-ranking-reason,
+.analyze-import-warning {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}

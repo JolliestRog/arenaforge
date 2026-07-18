@@ -14,7 +14,7 @@ DECK_SIZE = 99  # commander is the 100th
 SCORE_SCALE = 1000  # float scores → integers for CP-SAT
 WC_VALUES = {"common": 1, "uncommon": 2, "rare": 8, "mythic": 16, "special": 8}
 
-Variant = Literal["performance", "wildcard", "consistency"]
+Variant = Literal["performance", "wildcard", "consistency", "quality"]
 
 
 @dataclass
@@ -65,13 +65,15 @@ def _score_card(
         if strategy_weight == 0 and not card["is_land"]:
             score *= 0.4  # slight penalty for cards the strategy DB doesn't know about
 
-    # Ownership
-    if owned:
-        score += 80 if variant == "wildcard" else 20
-    else:
-        wc = _wc_cost_for(card, owned=False)
-        if wc:
-            score -= WC_VALUES[wc] * (3 if variant == "wildcard" else 1)
+    # The quality variant is deliberately ownership-neutral so two commanders
+    # are compared using their best decks, not the cards a user happens to own.
+    if variant != "quality":
+        if owned:
+            score += 80 if variant == "wildcard" else 20
+        else:
+            wc = _wc_cost_for(card, owned=False)
+            if wc:
+                score -= WC_VALUES[wc] * (3 if variant == "wildcard" else 1)
 
     # Yuriko high-MV bonus (legacy only)
     if not strategy_weight and profile.synergy_tag == "yuriko" and card["cmc"] >= 7:
@@ -221,7 +223,7 @@ def build_variant(
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_s
-    solver.parameters.num_workers = 4
+    solver.parameters.num_workers = 1
     status = solver.solve(model)
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -265,16 +267,25 @@ def build_variant(
 
     # Pad with basics if short on lands (Arena allows unlimited basics)
     land_count = sum(1 for dc in selected if dc.card["is_land"])
-    basics = {c["name"]: c for c in candidates if c["name"] in ("Island", "Swamp")}
-    pad_toggle = True
+    basic_by_color = {
+        "W": "Plains", "U": "Island", "B": "Swamp", "R": "Mountain", "G": "Forest",
+    }
+    commander_colors = json.loads(commander.get("color_identity") or "[]")
+    allowed_basics = [basic_by_color[c] for c in commander_colors if c in basic_by_color]
+    if not allowed_basics:
+        allowed_basics = ["Wastes"]
+    basics = {c["name"]: c for c in candidates if c["name"] in allowed_basics}
+    available_basics = [name for name in allowed_basics if name in basics]
+    pad_index = 0
     while land_count < target and len(selected) < DECK_SIZE:
-        basic_name = "Island" if pad_toggle else "Swamp"
-        pad_toggle = not pad_toggle
-        if basic_name in basics:
-            basic = basics[basic_name]
-            selected.append(DeckCard(card=basic, roles=["land"], owned=True,
-                                     wildcard_cost=None, reason="basic land pad", score=0))
-            land_count += 1
+        if not available_basics:
+            break
+        basic_name = available_basics[pad_index % len(available_basics)]
+        pad_index += 1
+        basic = basics[basic_name]
+        selected.append(DeckCard(card=basic, roles=["land"], owned=True,
+                                 wildcard_cost=None, reason="basic land pad", score=0))
+        land_count += 1
 
     return BuildResult(cards=selected, commander=commander, score=total_score,
                        infeasible=infeasible_flag)

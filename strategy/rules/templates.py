@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Sequence, Tuple
 
-TEMPLATE_VERSION = "2026.07.17.1"
+TEMPLATE_VERSION = "2026.07.18.1"
 
 
 @dataclass(frozen=True)
@@ -261,6 +261,58 @@ TEMPLATES: Tuple[Template, ...] = (
         ),
         description="Creature-type synergy stacked with lord effects.",
     ),
+    Template(
+        id="ninja_evasion_tempo",
+        name="ninja_evasion_tempo",
+        display_name="Ninja Evasion Tempo",
+        macro_plan="tempo",
+        theme="ninjutsu",
+        win_condition="combat",
+        required_tags=("ninjutsu",),
+        optional_tags=(
+            "evasion_matters", "topdeck_matters", "attack_matters",
+            "high_cmc_payoff", "macro_tempo",
+        ),
+        conflicting_tags=("macro_ramp", "aristocrats"),
+        needed_roles=(
+            "evasive_enabler", "ninjutsu_payoff", "topdeck_setup",
+            "draw", "removal", "counterspell", "protection",
+        ),
+        required_threshold=0.30,
+        description="Connect with evasive creatures and convert them into Ninja value.",
+    ),
+    Template(
+        id="blink_flicker_midrange",
+        name="blink_flicker_midrange",
+        display_name="Blink/Flicker Midrange",
+        macro_plan="midrange",
+        theme="blink",
+        win_condition="combat",
+        required_tags=("blink",),
+        optional_tags=("etb_trigger", "macro_midrange", "macro_control"),
+        conflicting_tags=("voltron",),
+        needed_roles=(
+            "blink_enabler", "blink_payoff", "draw", "removal",
+            "ramp", "protection",
+        ),
+        description="Reuse enter-the-battlefield effects with exile-and-return engines.",
+    ),
+    Template(
+        id="commander_voltron",
+        name="commander_voltron",
+        display_name="Commander Voltron",
+        macro_plan="midrange",
+        theme="voltron",
+        win_condition="commander_damage",
+        required_tags=("voltron",),
+        optional_tags=(
+            "attack_trigger", "attack_matters", "wincon_commander_damage",
+            "wincon_combat", "macro_midrange",
+        ),
+        conflicting_tags=("aristocrats", "tokens"),
+        needed_roles=("protection", "draw", "removal", "ramp", "attack_payoff"),
+        description="Protect and enhance one commander without requiring Aura or Equipment text.",
+    ),
 )
 
 
@@ -363,6 +415,31 @@ ROLE_TARGETS: dict[str, Tuple[Tuple[str, int, int, float], ...]] = {
         ("removal",           5,  8, 0.6),
         ("draw",              6,  9, 0.6),
         ("finisher",          3,  5, 0.7),
+    ),
+    "ninja_evasion_tempo":             (
+        ("evasive_enabler",  12, 16, 0.9),
+        ("ninjutsu_payoff",   7, 11, 0.9),
+        ("topdeck_setup",     4,  7, 0.7),
+        ("draw",              7, 11, 0.8),
+        ("removal",           5,  8, 0.7),
+        ("counterspell",      3,  6, 0.6),
+        ("protection",        2,  4, 0.5),
+        ("ramp",              3,  6, 0.5),
+    ),
+    "blink_flicker_midrange":          (
+        ("blink_enabler",     7, 11, 0.9),
+        ("blink_payoff",      8, 12, 0.9),
+        ("draw",              6,  9, 0.7),
+        ("removal",           5,  8, 0.7),
+        ("ramp",              6,  9, 0.6),
+        ("protection",        3,  5, 0.5),
+    ),
+    "commander_voltron":               (
+        ("protection",        7, 10, 0.9),
+        ("draw",              6,  9, 0.6),
+        ("removal",           5,  8, 0.6),
+        ("ramp",              7, 10, 0.6),
+        ("attack_payoff",     7, 10, 0.8),
     ),
 }
 

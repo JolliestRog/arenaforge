@@ -220,9 +220,9 @@ function CommanderCardV2({
 }) {
   const [expanded, setExpanded] = useState(false);
   const readinessClass =
-    rec.build_readiness >= 70 ? 'fit-high' : rec.build_readiness >= 40 ? 'fit-mid' : 'fit-low';
+    rec.deck_quality >= 70 ? 'fit-high' : rec.deck_quality >= 55 ? 'fit-mid' : 'fit-low';
 
-  const wc = rec.wildcard_cost_by_rarity;
+  const wc = rec.completion_cost_by_rarity;
   const totalWc = wc.common + wc.uncommon + wc.rare + wc.mythic;
 
   return (
@@ -235,6 +235,10 @@ function CommanderCardV2({
         </div>
         <div className="cmdr-card-meta">
           {rec.commander_owned && <span className="badge badge--owned">Owned</span>}
+          {rec.commander_wildcard_required && (
+            <span className="badge badge--craft">Commander to craft</span>
+          )}
+          {rec.provisional && <span className="badge badge--provisional">Provisional</span>}
           <span className="cmdr-card-profile">{rec.strategy_name}</span>
         </div>
       </div>
@@ -256,8 +260,8 @@ function CommanderCardV2({
 
       {/* Readiness gauges */}
       <div className={`cmdr-readiness-row ${readinessClass}`}>
-        <ReadinessGauge label="Build Readiness" value={rec.build_readiness} />
-        <ReadinessGauge label="Mana Ready"       value={rec.mana_readiness}  />
+        <ReadinessGauge label="Deck Quality" value={rec.deck_quality} />
+        <ReadinessGauge label="Already Owned" value={rec.collection_readiness} />
       </div>
 
       {/* Wildcard cost */}
@@ -266,7 +270,10 @@ function CommanderCardV2({
         {totalWc === 0 && rec.commander_owned && (
           <span className="cmdr-free-badge">Build for free!</span>
         )}
+        <span className="cmdr-cost-points">{rec.completion_cost_points} weighted wildcard points</span>
       </div>
+
+      <p className="cmdr-ranking-reason">{rec.ranking_reason}</p>
 
       {/* Strengths / deficits inline */}
       {(rec.strengths.length > 0 || rec.deficits.length > 0) && (
@@ -371,6 +378,13 @@ export default function AnalyzeStep({
                 <span>Strongest in <strong>{strongestLabels}</strong></span>
               )}
             </div>
+            {result.unmatched_cards.length > 0 && (
+              <p className="analyze-import-warning">
+                {result.unmatched_cards.length} imported card
+                {result.unmatched_cards.length === 1 ? '' : 's'} could not be matched and
+                were excluded from ranking.
+              </p>
+            )}
           </>
         )}
       </div>
@@ -427,9 +441,11 @@ export default function AnalyzeStep({
         )}
 
         {!loading && !error && result && (() => {
-          const recs    = result.recommendations;
-          const owned   = recs.filter(r => r.commander_owned);
-          const unowned = recs.filter(r => !r.commander_owned);
+          const owned = result.owned_recommendations
+            ?? result.recommendations.filter(r => r.commander_owned);
+          const unowned = result.unowned_recommendations
+            ?? result.recommendations.filter(r => !r.commander_owned);
+          const recs = [...owned, ...unowned];
           const visOwned   = showAllOwned   ? owned   : owned.slice(0, CARDS_PER_SECTION);
           const visUnowned = showAllUnowned ? unowned : unowned.slice(0, CARDS_PER_SECTION);
 
@@ -437,8 +453,9 @@ export default function AnalyzeStep({
             <>
               {owned.length > 0 && (
                 <>
+                  <h4 className="analyze-recs-subtitle">Best decks for commanders you own</h4>
                   <p className="analyze-recs-sub">
-                    Commanders you own, ranked by how well your collection supports the strategy.
+                    Strongest optimized decks first, with collection readiness as the tie-breaker.
                   </p>
                   <div className="cmdr-card-grid">
                     {visOwned.map(rec => (
@@ -462,9 +479,9 @@ export default function AnalyzeStep({
 
               {unowned.length > 0 && (
                 <>
-                  <h4 className="analyze-recs-subtitle">Commanders worth building toward</h4>
+                  <h4 className="analyze-recs-subtitle">Closest strong decks with a commander to craft</h4>
                   <p className="analyze-recs-sub">
-                    You don't own these yet, but your collection already supports the strategy.
+                    Quality-qualified decks ranked by the weighted wildcard cost to complete them.
                   </p>
                   <div className="cmdr-card-grid">
                     {visUnowned.map(rec => (

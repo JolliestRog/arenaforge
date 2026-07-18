@@ -181,6 +181,13 @@ export interface CommanderRecommendationV2 {
   key_missing: { name: string; rarity: string }[];
   strengths: string[];
   deficits: string[];
+  deck_quality: number;
+  collection_readiness: number;
+  completion_cost_by_rarity: WildcardCostByRarity;
+  completion_cost_points: number;
+  commander_wildcard_required: boolean;
+  provisional: boolean;
+  ranking_reason: string;
 }
 
 export interface AnalysisResultV2 {
@@ -192,5 +199,10 @@ export interface AnalysisResultV2 {
   strongest_colors: string[];
   summary: string;
   strategy_filter: string;
+  ranking_version: string;
+  unmatched_cards: string[];
+  analysis_warnings: string[];
+  owned_recommendations: CommanderRecommendationV2[];
+  unowned_recommendations: CommanderRecommendationV2[];
   recommendations: CommanderRecommendationV2[];
 }

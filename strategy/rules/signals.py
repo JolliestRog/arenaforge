@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Iterable, List, Sequence, Tuple
 
-SIGNAL_RULE_VERSION = "2026.07.17.1"
+SIGNAL_RULE_VERSION = "2026.07.18.1"
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +59,11 @@ TAG_CATALOG: List[Tuple[str, str, str]] = [
     ("big_mana", "theme", "Generates or spends large amounts of mana."),
     ("counters_control", "theme", "Uses counterspells as core interaction."),
     ("tribal_generic", "theme", "Any typal/tribal marker present."),
+    ("ninjutsu", "theme", "Ninjutsu and Ninja combat-damage engines."),
+    ("evasion_matters", "theme", "Rewards creatures that connect in combat."),
+    ("topdeck_matters", "theme", "Manipulates or rewards the top of the library."),
+    ("attack_matters", "theme", "Rewards attacking or combat-damage triggers."),
+    ("high_cmc_payoff", "theme", "Rewards expensive cards or mana-value reveals."),
 
     # signals (raw classifier outputs, kept for evidence)
     ("attack_trigger", "signal", "Whenever ~ attacks trigger."),
@@ -106,6 +111,45 @@ def _r(pattern: str, flags: int = re.IGNORECASE) -> re.Pattern:
 
 # Ordering matters only for evidence readability, not for weights.
 RULES: Tuple[Rule, ...] = (
+    # --- ninjutsu / evasion ------------------------------------------------
+    Rule(
+        "ninjutsu_keyword",
+        _r(r"\bninjutsu\b"),
+        (
+            ("ninjutsu", 0.95),
+            ("evasion_matters", 0.40),
+            ("macro_tempo", 0.30),
+        ),
+    ),
+    Rule(
+        "unblockable_self",
+        _r(r"(?:~|this creature) can'?t be blocked|unblockable"),
+        (
+            ("evasion_matters", 0.85),
+            ("ninjutsu", 0.30),
+            ("macro_tempo", 0.25),
+        ),
+    ),
+    Rule(
+        "combat_damage_player",
+        _r(r"whenever .{0,50} deals combat damage to (?:a player|an opponent)"),
+        (
+            ("attack_matters", 0.85),
+            ("evasion_matters", 0.50),
+            ("wincon_combat", 0.25),
+        ),
+    ),
+    Rule(
+        "topdeck_setup",
+        _r(r"look at the top|put .{0,30} on top of your library|reveal the top"),
+        (("topdeck_matters", 0.80),),
+    ),
+    Rule(
+        "ninja_payoff",
+        _r(r"whenever .{0,40}ninja|ninja card|revealed this way"),
+        (("ninjutsu", 0.75), ("high_cmc_payoff", 0.40)),
+    ),
+
     # --- attack triggers ---------------------------------------------------
     Rule(
         "attack_trigger",
@@ -435,7 +479,12 @@ RULES: Tuple[Rule, ...] = (
     Rule(
         "blink_effect",
         _r(r"exile .* return .* to the battlefield"),
-        (("blink", 0.60),),
+        (("blink", 0.80), ("macro_midrange", 0.20)),
+    ),
+    Rule(
+        "blink_delayed_return",
+        _r(r"exile .{0,80}(?:return|returns) .{0,80}(?:under its owner's control|to the battlefield)"),
+        (("blink", 0.70), ("etb_trigger", 0.25)),
     ),
 
     # --- win conditions ---------------------------------------------------

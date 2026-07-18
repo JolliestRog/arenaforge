@@ -201,6 +201,43 @@ def test_each_commander_has_reasonable_strategy_count(conn):
     )
 
 
+def test_every_legal_commander_has_a_weighted_pair(conn):
+    missing = conn.execute(
+        """
+        SELECT c.name
+        FROM cards c
+        WHERE c.is_commander = 1
+          AND c.arena_legal = 1
+          AND NOT EXISTS (
+              SELECT 1
+              FROM commander_strategy_cards csc
+              WHERE csc.commander_oracle_id = c.oracle_id
+          )
+        LIMIT 10
+        """
+    ).fetchall()
+    assert not missing, f"legal commanders without weighted fallback pairs: {missing}"
+
+
+def test_satoru_uses_normal_ninja_pipeline(conn):
+    row = conn.execute(
+        """
+        SELECT cs.status, cs.fit_score,
+               (SELECT COUNT(*) FROM commander_strategy_cards csc
+                WHERE csc.commander_oracle_id = cs.commander_oracle_id
+                  AND csc.strategy_template_id = cs.strategy_template_id) AS cards
+        FROM commander_strategies cs
+        JOIN cards c ON c.oracle_id = cs.commander_oracle_id
+        WHERE c.name = 'A-Satoru Umezawa'
+          AND cs.strategy_template_id = 'ninja_evasion_tempo'
+        """
+    ).fetchone()
+    assert row is not None
+    assert row["status"] in {"recommended", "viable", "experimental"}
+    assert row["fit_score"] >= 0.45
+    assert row["cards"] > 0
+
+
 # ---------------------------------------------------------------------------
 # Signal-level unit smoke tests (fast, do not need built_db).
 # ---------------------------------------------------------------------------

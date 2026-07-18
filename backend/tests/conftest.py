@@ -35,6 +35,9 @@ def init_databases():
     import db
     import strategy_db
     db.init()
+    # strategy_db.init() defaults to the container volume path. Host tests use
+    # the sibling strategy/data database selected above.
+    strategy_db.STRATEGY_DB_PATH = STRATEGY_DB
     strategy_db.init()
     yield
     db.close()
