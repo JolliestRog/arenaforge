@@ -630,6 +630,47 @@ button { cursor: pointer; border: none; font: inherit; }
 
 .cmdr-select-btn { width: 100%; margin-top: auto; }
 
+/* fallback cards */
+.cmdr-card--fallback { border-color: var(--bg3); opacity: 0.75; }
+.cmdr-card--fallback:hover { opacity: 1; border-color: var(--accent); }
+
+/* fallback divider — spans full grid width */
+.cmdr-fallback-divider {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 12px 0 4px;
+  border-top: 1px dashed var(--border);
+  margin-top: 4px;
+}
+
+/* legend card */
+.cmdr-card--legend {
+  border-color: var(--bg3);
+  background: var(--bg);
+  cursor: default;
+}
+.cmdr-card--legend:hover { border-color: var(--border); }
+.legend-card-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+.legend-card-rows { display: flex; flex-direction: column; gap: 12px; }
+.legend-card-row { display: flex; align-items: flex-start; gap: 10px; }
+.legend-card-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 4px;
+}
+.legend-card-dot--score  { background: var(--accent); }
+.legend-card-dot--pct    { background: var(--gold); }
+.legend-card-dot--keys   { background: var(--accent2); }
+.legend-card-label { font-size: 0.8rem; font-weight: 600; color: var(--text); margin-bottom: 2px; }
+.legend-card-desc  { font-size: 0.76rem; color: var(--text-dim); line-height: 1.5; }
+
 .analyze-footer-actions { display: flex; justify-content: flex-start; padding-bottom: 8px; }
 
 /* ── Play Guide ────────────────────────────────────────────────────────── */

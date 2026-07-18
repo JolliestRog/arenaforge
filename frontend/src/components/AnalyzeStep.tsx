@@ -119,6 +119,63 @@ function StrategicAssetsSection({ roleCounts }: { roleCounts: Record<string, num
   );
 }
 
+// ── Legend cards ──────────────────────────────────────────────────────────────
+
+function OwnedLegendCard() {
+  return (
+    <div className="cmdr-card cmdr-card--legend">
+      <div className="legend-card-title">How to read these</div>
+      <div className="legend-card-rows">
+        <div className="legend-card-row">
+          <div className="legend-card-dot legend-card-dot--score" />
+          <div>
+            <div className="legend-card-label">Score (e.g. 62)</div>
+            <div className="legend-card-desc">How well your collection supports this commander's strategy. Higher is better.</div>
+          </div>
+        </div>
+        <div className="legend-card-row">
+          <div className="legend-card-dot legend-card-dot--pct" />
+          <div>
+            <div className="legend-card-label">% of pool owned</div>
+            <div className="legend-card-desc">How many of the key strategy cards you already have.</div>
+          </div>
+        </div>
+        <div className="legend-card-row">
+          <div className="legend-card-dot legend-card-dot--keys" />
+          <div>
+            <div className="legend-card-label">Key owned / missing</div>
+            <div className="legend-card-desc">The most impactful cards for the strategy that you own or still need to craft.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function UnownedLegendCard() {
+  return (
+    <div className="cmdr-card cmdr-card--legend">
+      <div className="legend-card-title">Build toward</div>
+      <div className="legend-card-rows">
+        <div className="legend-card-row">
+          <div className="legend-card-dot legend-card-dot--score" />
+          <div>
+            <div className="legend-card-label">You don't own these commanders yet</div>
+            <div className="legend-card-desc">But your collection already covers the strategy well. You'd mainly need to craft the commander itself.</div>
+          </div>
+        </div>
+        <div className="legend-card-row">
+          <div className="legend-card-dot legend-card-dot--pct" />
+          <div>
+            <div className="legend-card-label">Lower % owned = more to acquire</div>
+            <div className="legend-card-desc">The strategy still fits your collection's strengths. "Key missing" shows the most important gaps.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Commander card ────────────────────────────────────────────────────────────
 
 function ScoreBar({ label, value, max }: { label: string; value: number; max: number }) {
@@ -136,15 +193,17 @@ function ScoreBar({ label, value, max }: { label: string; value: number; max: nu
 function CommanderCard({
   rec,
   onSelect,
+  fallback = false,
 }: {
   rec: CommanderRecommendation;
   onSelect: () => void;
+  fallback?: boolean;
 }) {
   const breakdownMax = Math.max(...Object.values(rec.score_breakdown), 1);
   const fitClass = rec.collection_fit >= 80 ? 'fit-high' : rec.collection_fit >= 50 ? 'fit-mid' : 'fit-low';
 
   return (
-    <div className={`cmdr-card ${rec.owned ? 'cmdr-card--owned' : ''}`}>
+    <div className={`cmdr-card ${rec.owned ? 'cmdr-card--owned' : ''} ${fallback ? 'cmdr-card--fallback' : ''}`}>
       <div className="cmdr-card-header">
         <div className="cmdr-card-name-row">
           <span className="cmdr-card-name">{rec.name}</span>
@@ -239,7 +298,8 @@ function macroLabel(profileId: string): string {
   return MACRO_BY_PROFILE[profileId] ?? 'Other';
 }
 
-const CARDS_PER_SECTION = 6;
+const CARDS_PER_SECTION = 10;
+const MIN_BEFORE_FALLBACK = 4;
 
 // ── Main component ────────────────────────────────────────────────────────────
 
@@ -248,8 +308,6 @@ export default function AnalyzeStep({ collection, cachedResult, onResult, onSele
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(cachedResult == null);
   const [filterMacro, setFilterMacro] = useState('All');
-  const [showAllOwned, setShowAllOwned] = useState(false);
-  const [showAllUnowned, setShowAllUnowned] = useState(false);
 
   useEffect(() => {
     if (cachedResult != null) return;
@@ -314,7 +372,7 @@ export default function AnalyzeStep({ collection, cachedResult, onResult, onSele
                 <button
                   key={m}
                   className={`strategy-chip ${filterMacro === m ? 'strategy-chip--active' : ''}`}
-                  onClick={() => { setFilterMacro(m); setShowAllOwned(false); setShowAllUnowned(false); }}
+                  onClick={() => setFilterMacro(m)}
                 >
                   {m}
                   <span className="strategy-chip-count">{count}</span>
@@ -325,50 +383,70 @@ export default function AnalyzeStep({ collection, cachedResult, onResult, onSele
         </div>
 
         {(() => {
-          const filtered = filterMacro === 'All'
+          const isFiltered = filterMacro !== 'All';
+          const filtered = isFiltered
+            ? result.recommendations.filter(r => macroLabel(r.profile_id) === filterMacro)
+            : result.recommendations;
+
+          const filteredOwned   = filtered.filter(r => r.owned);
+          const filteredUnowned = filtered.filter(r => !r.owned);
+
+          // Fallback pool: top results outside the current filter, sorted by strategy_alignment
+          const fallbackPool = isFiltered
             ? result.recommendations
-            : result.recommendations.filter(r => macroLabel(r.profile_id) === filterMacro);
-          const owned   = filtered.filter(r => r.owned);
-          const unowned = filtered.filter(r => !r.owned);
-          const visOwned   = showAllOwned   ? owned   : owned.slice(0, CARDS_PER_SECTION);
-          const visUnowned = showAllUnowned ? unowned : unowned.slice(0, CARDS_PER_SECTION);
+                .filter(r => macroLabel(r.profile_id) !== filterMacro)
+                .sort((a, b) =>
+                  (b.score_breakdown['strategy_alignment'] ?? b.collection_fit) -
+                  (a.score_breakdown['strategy_alignment'] ?? a.collection_fit)
+                )
+            : [];
+
+          const ownedFallback   = filteredOwned.length   < MIN_BEFORE_FALLBACK ? fallbackPool.filter(r =>  r.owned).slice(0, CARDS_PER_SECTION - filteredOwned.length)   : [];
+          const unownedFallback = filteredUnowned.length < MIN_BEFORE_FALLBACK ? fallbackPool.filter(r => !r.owned).slice(0, CARDS_PER_SECTION - filteredUnowned.length) : [];
+
+          const showOwned   = filteredOwned.slice(0, CARDS_PER_SECTION);
+          const showUnowned = filteredUnowned.slice(0, CARDS_PER_SECTION);
 
           return (
             <>
-              {owned.length > 0 && (
-                <>
-                  <p className="analyze-recs-sub">Commanders you own, ranked by how well your collection supports them.</p>
-                  <div className="cmdr-card-grid">
-                    {visOwned.map(rec => (
-                      <CommanderCard key={rec.name} rec={rec} onSelect={() => onSelectCommander(rec.name, rec.profile_id)} />
+              {/* ── Owned section ── */}
+              <p className="analyze-recs-sub">Commanders you own, ranked by how well your collection supports them.</p>
+              <div className="cmdr-card-grid">
+                <OwnedLegendCard />
+                {showOwned.map(rec => (
+                  <CommanderCard key={rec.name} rec={rec} onSelect={() => onSelectCommander(rec.name, rec.profile_id)} />
+                ))}
+                {ownedFallback.length > 0 && (
+                  <>
+                    <div className="cmdr-fallback-divider">
+                      Nearest overall matches — not {filterMacro.toLowerCase()} but close
+                    </div>
+                    {ownedFallback.map(rec => (
+                      <CommanderCard key={rec.name} rec={rec} fallback onSelect={() => onSelectCommander(rec.name, rec.profile_id)} />
                     ))}
-                  </div>
-                  {owned.length > CARDS_PER_SECTION && !showAllOwned && (
-                    <button className="btn-ghost show-more-btn" onClick={() => setShowAllOwned(true)}>
-                      Show {owned.length - CARDS_PER_SECTION} more owned commanders
-                    </button>
-                  )}
-                </>
-              )}
-              {unowned.length > 0 && (
-                <>
-                  <h4 className="analyze-recs-subtitle">Commanders worth building toward</h4>
-                  <p className="analyze-recs-sub">You don't own these yet, but your collection already supports the strategy well.</p>
-                  <div className="cmdr-card-grid">
-                    {visUnowned.map(rec => (
-                      <CommanderCard key={rec.name} rec={rec} onSelect={() => onSelectCommander(rec.name, rec.profile_id)} />
+                  </>
+                )}
+              </div>
+
+              {/* ── Unowned section ── */}
+              <h4 className="analyze-recs-subtitle">Commanders worth building toward</h4>
+              <p className="analyze-recs-sub">You don't own these yet, but your collection already supports the strategy well.</p>
+              <div className="cmdr-card-grid">
+                <UnownedLegendCard />
+                {showUnowned.map(rec => (
+                  <CommanderCard key={rec.name} rec={rec} onSelect={() => onSelectCommander(rec.name, rec.profile_id)} />
+                ))}
+                {unownedFallback.length > 0 && (
+                  <>
+                    <div className="cmdr-fallback-divider">
+                      Nearest overall matches — not {filterMacro.toLowerCase()} but close
+                    </div>
+                    {unownedFallback.map(rec => (
+                      <CommanderCard key={rec.name} rec={rec} fallback onSelect={() => onSelectCommander(rec.name, rec.profile_id)} />
                     ))}
-                  </div>
-                  {unowned.length > CARDS_PER_SECTION && !showAllUnowned && (
-                    <button className="btn-ghost show-more-btn" onClick={() => setShowAllUnowned(true)}>
-                      Show {unowned.length - CARDS_PER_SECTION} more commanders to build toward
-                    </button>
-                  )}
-                </>
-              )}
-              {filtered.length === 0 && (
-                <p className="analyze-recs-sub">No recommendations match this filter.</p>
-              )}
+                  </>
+                )}
+              </div>
             </>
           );
         })()}
