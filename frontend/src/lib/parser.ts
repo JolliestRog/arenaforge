@@ -73,6 +73,17 @@ export function parseCollection(raw: string): ParseResult {
   }
 
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+
+  // A real Arena collection or deck export always has lines starting with a count (digit).
+  // If none exist, the user almost certainly pasted the wrong thing.
+  const digitLines = lines.filter(l => /^\d/.test(l));
+  if (digitLines.length === 0 && lines.length > 2) {
+    return {
+      cards: [],
+      errors: ["This doesn't look like an Arena export — no card counts found. Each line should start with a number, e.g. \"2 Counterspell (TSR) 73\". Make sure you're pasting the output from the Arena Exporter."],
+    };
+  }
+
   const cards: OwnedCard[] = [];
   const errors: string[] = [];
   const seen = new Map<string, number>();
