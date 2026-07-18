@@ -36,6 +36,11 @@ class ColorStrength(BaseModel):
     mythics: int
 
 
+class KeyCard(BaseModel):
+    name: str
+    rarity: str
+
+
 class CommanderRecommendation(BaseModel):
     name: str
     color_identity: list[str]
@@ -52,7 +57,7 @@ class CommanderRecommendation(BaseModel):
     role_coverage: dict[str, int]
     score_breakdown: dict[str, float]
     key_owned: list[str]
-    key_missing: list[str]
+    key_missing: list[KeyCard]
 
 
 class AnalysisResult(BaseModel):
@@ -199,7 +204,7 @@ def _fetch_strategy_scores(
     for cmdr_name, strat in best.items():
         card_rows = s_conn.execute(
             """
-            SELECT cc.name AS card_name, sc.card_weight
+            SELECT cc.name AS card_name, cc.rarity AS card_rarity, sc.card_weight
             FROM commander_strategy_cards sc
             JOIN cards cc ON cc.oracle_id = sc.card_oracle_id
             WHERE sc.commander_oracle_id = ?
@@ -211,9 +216,9 @@ def _fetch_strategy_scores(
             (strat["commander_oracle_id"], strat["strategy_template_id"], COVERAGE_CARD_LIMIT),
         ).fetchall()
 
-        top_cards = [r["card_name"] for r in card_rows]
-        key_owned   = [n for n in top_cards if n in owned_set]
-        key_missing = [n for n in top_cards if n not in owned_set]
+        top_cards = [(r["card_name"], r["card_rarity"]) for r in card_rows]
+        key_owned   = [n for n, _ in top_cards if n in owned_set]
+        key_missing = [KeyCard(name=n, rarity=rar) for n, rar in top_cards if n not in owned_set]
         coverage = len(key_owned) / max(len(top_cards), 1)
 
         result[cmdr_name] = {
@@ -307,7 +312,7 @@ def _score_commander(
     key_owned = [c["name"] for c in
                  sorted([c for c in owned_pool if not c["is_land"] and card_weight(c) > 0],
                         key=card_weight, reverse=True)[:5]]
-    key_missing = [c["name"] for c in
+    key_missing = [KeyCard(name=c["name"], rarity=c["rarity"]) for c in
                    sorted([c for c in pool if c["name"] not in owned_set and not c["is_land"] and card_weight(c) > 0],
                           key=card_weight, reverse=True)[:5]]
 

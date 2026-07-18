@@ -193,8 +193,11 @@ function CommanderCard({
         <div className="cmdr-card-keys">
           <div className="cmdr-keys-label">Key missing:</div>
           <div className="cmdr-key-list">
-            {rec.key_missing.slice(0, 3).map(n => (
-              <span key={n} className="cmdr-key-card cmdr-key-card--missing">{n}</span>
+            {rec.key_missing.slice(0, 3).map(k => (
+              <span key={k.name} className={`cmdr-key-card cmdr-key-card--missing cmdr-key-card--${k.rarity}`}>
+                {k.name}
+                <span className="cmdr-key-rarity">{k.rarity[0].toUpperCase()}</span>
+              </span>
             ))}
           </div>
         </div>

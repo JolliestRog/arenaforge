@@ -129,7 +129,7 @@ export interface CommanderRecommendation {
   role_coverage: Record<string, number>;
   score_breakdown: Record<string, number>;
   key_owned: string[];
-  key_missing: string[];
+  key_missing: { name: string; rarity: string }[];
 }
 
 export interface AnalysisResult {
