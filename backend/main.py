@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import db
 import strategy_db
-from routers import analyze, build, cards, commanders
+from routers import analyze, analyze_v2, build, cards, commanders
 
 
 @asynccontextmanager
@@ -32,6 +32,7 @@ app.add_middleware(
 )
 
 app.include_router(analyze.router)
+app.include_router(analyze_v2.router)
 app.include_router(cards.router)
 app.include_router(commanders.router)
 app.include_router(build.router)

@@ -557,8 +557,9 @@ button { cursor: pointer; border: none; font: inherit; }
 
 .show-more-btn { align-self: flex-start; font-size: 0.82rem; padding: 6px 14px; }
 .cmdr-card-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
 }
+@media (max-width: 1100px) { .cmdr-card-grid { grid-template-columns: repeat(2, 1fr); } }
 
 /* individual commander card */
 .cmdr-card {
@@ -748,6 +749,133 @@ button { cursor: pointer; border: none; font: inherit; }
   border-radius: 12px;
   font-size: 0.8rem;
   line-height: 1.4;
+}
+
+/* ── Analysis V2 — readiness gauges ────────────────────────────────────── */
+.cmdr-readiness-row { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 8px; }
+.readiness-gauge { display: flex; flex-direction: column; gap: 3px; }
+.gauge-track { height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+.gauge-fill  { height: 100%; border-radius: 3px; background: var(--accent); }
+.gauge--high .gauge-fill { background: var(--green); }
+.gauge--mid  .gauge-fill { background: var(--gold); }
+.gauge--low  .gauge-fill { background: var(--red); }
+.gauge-label-row { display: flex; justify-content: space-between; align-items: baseline; }
+.gauge-label { font-size: 0.7rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.gauge-val   { font-size: 0.78rem; font-weight: 600; color: var(--text); }
+
+/* ── Analysis V2 — wildcard cost ────────────────────────────────────────── */
+.cmdr-wc-section   { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.cmdr-wc-label     { font-size: 0.72rem; color: var(--text-dim); }
+.wc-row            { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.wc-zero           { font-size: 0.75rem; color: var(--green); }
+.wc-badge          { font-size: 0.72rem; padding: 1px 6px; border-radius: 10px; font-weight: 600; }
+.wc-mythic         { background: rgba(230,100,200,0.15); border: 1px solid rgba(230,100,200,0.4); color: #e664c8; }
+.wc-rare           { background: rgba(255,200,80,0.12);  border: 1px solid rgba(255,200,80,0.4);  color: #ffc850; }
+.wc-uncommon       { background: rgba(140,200,255,0.12); border: 1px solid rgba(140,200,255,0.4); color: #8cc8ff; }
+.wc-common         { background: rgba(180,180,180,0.1);  border: 1px solid rgba(180,180,180,0.3); color: #aaa; }
+
+/* ── Analysis V2 — evidence tags ───────────────────────────────────────── */
+.cmdr-evidence     { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.evidence-tag      { font-size: 0.72rem; padding: 2px 0; line-height: 1.4; }
+.evidence-tag--strength { color: var(--green); }
+.evidence-tag--deficit  { color: var(--red); }
+
+/* ── Analysis V2 — role coverage ───────────────────────────────────────── */
+.cmdr-role-coverage-section { margin: 6px 0; }
+.cmdr-expand-btn  { font-size: 0.72rem; padding: 3px 0; color: var(--text-dim); }
+.role-coverage    { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.role-item        { display: flex; justify-content: space-between; align-items: center;
+                    font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; }
+.role-item--met      { background: rgba(61,204,136,0.08); color: var(--green); }
+.role-item--partial  { background: rgba(255,215,0,0.08);  color: var(--gold); }
+.role-item--unmet    { background: rgba(238,85,85,0.08);  color: var(--red); }
+.role-item-name  { text-transform: capitalize; }
+.role-item-count { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ── Key missing by rarity ────────────────────────────────────────────── */
+.cmdr-card-missing { display: flex; flex-direction: column; gap: 5px; }
+.cmdr-missing-rarity-row { display: flex; align-items: flex-start; gap: 6px; flex-wrap: wrap; }
+.cmdr-rarity-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 4px;
+  font-size: 10px; font-weight: 800; flex-shrink: 0; margin-top: 2px;
+}
+.cmdr-rarity-badge--mythic  { background: rgba(220,100,30,.25); color: #e07030; border: 1px solid rgba(220,100,30,.3); }
+.cmdr-rarity-badge--rare    { background: rgba(200,150,0,.25);  color: #e8b84b; border: 1px solid rgba(200,150,0,.3); }
+.cmdr-rarity-badge--uncommon{ background: rgba(120,160,220,.2); color: #8aabe0; border: 1px solid rgba(120,160,220,.25); }
+.cmdr-rarity-badge--common  { background: rgba(160,160,160,.15);color: #aaa;    border: 1px solid rgba(160,160,160,.2); }
+.cmdr-missing-names { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+.cmdr-free-badge { font-size: 0.7rem; font-weight: 700; color: var(--green); letter-spacing: .04em; }
+
+/* ── 4-variant compare ─────────────────────────────────────────────────── */
+.variants-grid--four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1200px) { .variants-grid--four { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .variants-grid--four { grid-template-columns: 1fr; } }
+
+.variant-card--free { border-color: var(--green); }
+.variant-card--free .variant-header h3 { color: var(--green); }
+.variant-card--infeasible { opacity: .6; }
+.free-badge { display: inline-block; margin-left: 8px; padding: 2px 6px; background: rgba(51,221,136,.12); color: var(--green); border-radius: 4px; font-size: 0.65rem; font-weight: 800; letter-spacing: .06em; }
+.btn-free { background: rgba(51,221,136,.15); border: 1px solid rgba(51,221,136,.4); color: var(--green); }
+.btn-free:hover { background: rgba(51,221,136,.25); }
+
+/* ── Play Guide — screen actions ──────────────────────────────────────── */
+.guide-screen-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.guide-bmc-link {
+  display: inline-flex; align-items: center; gap: 6px; padding: 9px 18px;
+  background: rgba(255,221,0,.08); border: 1px solid rgba(255,221,0,.3);
+  color: #e8c840; border-radius: var(--radius); font-size: 0.875rem; font-weight: 600;
+  text-decoration: none; transition: background .15s;
+}
+.guide-bmc-link:hover { background: rgba(255,221,0,.18); }
+
+/* ── Print styles ─────────────────────────────────────────────────────── */
+.guide-print-header { display: none; }
+.guide-print-footer { display: none; }
+
+@media print {
+  /* Hide all UI chrome */
+  .app-header, .step-bar, .app-footer, .step-actions,
+  .guide-screen-actions, .strategy-filter, .guide-warnings { display: none !important; }
+
+  body { background: #fff !important; color: #111 !important; font-size: 11pt; }
+  .app { display: block; }
+  .app-main { padding: 0; max-width: 100%; }
+  .guide-step { padding: 0; max-width: 100%; }
+
+  /* Print header */
+  .guide-print-header {
+    display: flex !important; align-items: center; justify-content: space-between;
+    padding: 12px 20px; border-bottom: 2px solid #333; margin-bottom: 16px;
+    background: #1a1a2e; color: #fff;
+  }
+  .guide-print-dragon { height: 60px; object-fit: contain; }
+  .guide-print-title-block { text-align: center; }
+  .guide-print-wordmark { font-size: 1.8rem; font-weight: 900; color: #5c8aff; letter-spacing: 2px; }
+  .guide-print-subtitle { font-size: 0.75rem; color: #9ab; letter-spacing: 1px; }
+
+  /* Guide content */
+  .guide-header { background: none; border: none; padding: 8px 0; }
+  .guide-commander { font-size: 1.4rem; color: #111; }
+  .guide-strategy, .guide-macro { color: #333; }
+  .fit-badge { border: 1px solid #333; color: #333; background: none; }
+  .guide-section { border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px; break-inside: avoid; }
+  .guide-section-title { background: #eee; color: #111; padding: 4px 10px; font-size: 0.85rem; }
+  .guide-text, .guide-list { color: #222; }
+  .guide-card-pill { background: #f0f0f0; color: #111; border: 1px solid #ccc; }
+  .guide-cards-grid { grid-template-columns: repeat(2, 1fr); }
+
+  /* Print footer */
+  .guide-print-footer {
+    display: flex !important; align-items: center; justify-content: space-between;
+    margin-top: 20px; padding: 12px 20px; border-top: 2px solid #333;
+    background: #1a1a2e; color: #fff;
+  }
+  .guide-print-qr-block { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .guide-print-qr { width: 80px; height: 80px; }
+  .guide-print-qr-label { font-size: 0.6rem; color: #9ab; text-align: center; }
+  .guide-print-url { font-size: 1.1rem; font-weight: 700; color: #5c8aff; }
+  .guide-print-disclaimer { font-size: 0.6rem; color: #9ab; max-width: 200px; text-align: right; }
 }
 
 /* ── Responsive ────────────────────────────────────────────────────────── */

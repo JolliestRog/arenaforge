@@ -1,5 +1,5 @@
 import type {
-  AnalysisResult, CardData, DeckCard, DeckVariant,
+  AnalysisResult, AnalysisResultV2, CardData, DeckCard, DeckVariant,
   ExcludedCard, OwnedCard, WildcardBudget,
 } from './types';
 
@@ -163,6 +163,25 @@ export async function analyzeCollection(collection: OwnedCard[]): Promise<Analys
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new ApiError(res.status, err.detail ?? 'Analysis failed');
+  }
+
+  return res.json();
+}
+
+export async function analyzeCollectionV2(
+  collection: OwnedCard[],
+  strategyFilter: string = 'All',
+): Promise<AnalysisResultV2> {
+  const body = { collection, strategy_filter: strategyFilter };
+  const res = await fetch(`${API_BASE}/analyze/v2`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new ApiError(res.status, err.detail ?? 'Analysis V2 failed');
   }
 
   return res.json();

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import type { AnalysisResult, BuildRequest, DeckVariant, OwnedCard } from './lib/types';
+import { useRef, useState } from 'react';
+import type { AnalysisResultV2, BuildRequest, DeckVariant, OwnedCard } from './lib/types';
 import { buildDeck } from './lib/api';
 import ImportStep from './components/ImportStep';
 import AnalyzeStep from './components/AnalyzeStep';
@@ -45,9 +45,11 @@ function App() {
   const [request, setRequest] = useState<BuildRequest | null>(null);
   const [variants, setVariants] = useState<DeckVariant[]>([]);
   const [selectedVariant, setSelectedVariant] = useState<DeckVariant | null>(null);
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResultV2 | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Cache survives navigation between steps — keyed by strategy filter string.
+  const analysisCacheRef = useRef<Map<string, AnalysisResultV2>>(new Map());
 
   function handleImport(collection: OwnedCard[]) {
     const defaultReq: BuildRequest = {
@@ -85,16 +87,15 @@ function App() {
     setLoading(true);
     try {
       const result = await buildDeck(req.collection, req.commander, req.profile, req.wildcardBudget);
-      const feasible = result.filter(v => !v.infeasible);
-      if (feasible.length === 0) {
+      if (result.length === 0) {
         setError(
-          `No valid deck found for ${req.commander} within your wildcard budget. ` +
-          `Try increasing your budget or choosing a different commander or strategy.`
+          `No deck variants returned for ${req.commander}. Try a different commander or strategy.`
         );
         setStep('build');
       } else {
         setRequest(req);
-        setVariants(feasible);
+        // Show all variants — the "free" tier is always feasible; others may carry infeasible badge.
+        setVariants(result);
         setStep('compare');
       }
     } catch (e) {
@@ -116,6 +117,7 @@ function App() {
     setSelectedVariant(null);
     setAnalysisResult(null);
     setError(null);
+    analysisCacheRef.current.clear();
   }
 
   return (
@@ -147,7 +149,7 @@ function App() {
         {step === 'analyze' && request && (
           <AnalyzeStep
             collection={request.collection}
-            cachedResult={analysisResult}
+            cacheRef={analysisCacheRef}
             onResult={setAnalysisResult}
             onSelectCommander={handleSelectCommander}
             onBack={() => setStep('import')}

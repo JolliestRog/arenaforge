@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
@@ -128,7 +129,7 @@ class FeaturedCards(BaseModel):
     ramp: list[str] = []
 
 class DeckVariantResponse(BaseModel):
-    variant_key: Literal["performance", "wildcard", "consistency"]
+    variant_key: str
     label: str
     description: str
     strategy_name: str
@@ -234,18 +235,18 @@ def _build_variant_response(
     all_candidates: list[dict],
     owned_set: set[str],
     profile,
+    solver_variant: str = "performance",
     strategy_weights: dict[str, float] | None = None,
 ) -> DeckVariantResponse:
     sw = strategy_weights or {}
     selected_names = {dc.card["name"] for dc in result.cards}
-    # Top excluded candidates by score
     excluded = []
     for card in all_candidates:
         if card["name"] in selected_names or card["name"] == result.commander["name"]:
             continue
         roles = infer_roles(card)
         owned = card["name"] in owned_set
-        score = _score_card(card, roles, profile, owned, variant_key, sw.get(card["name"], 0.0))
+        score = _score_card(card, roles, profile, owned, solver_variant, sw.get(card["name"], 0.0))
         excluded.append(ExcludedCard(name=card["name"], score=score, reason="not selected"))
     excluded.sort(key=lambda e: -e.score)
 
@@ -282,11 +283,19 @@ def _build_variant_response(
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
 
-VARIANT_META = {
-    "performance": ("Highest Performance", "Maximum power — wildcards used freely."),
-    "wildcard":    ("Lowest Wildcard Cost", "Prefers cards you already own."),
-    "consistency": ("Highest Consistency",  "Optimized for functional opening hands."),
-}
+# Each entry: (variant_key, label, description, budget_preset_or_None, solver_variant)
+# budget_preset=None → use the user's wildcard_budget (the "optimized" tier)
+# solver_variant maps to CP-SAT scoring mode ("wildcard" prefers owned, "performance" ignores ownership)
+VARIANT_PRESETS = [
+    ("free",        "Free to Play",  "Built entirely from your collection — zero wildcards needed.",
+     {"common": 0, "uncommon": 0, "rare": 0, "mythic": 0},  "wildcard"),
+    ("cheap",       "Budget Build",  "Low-cost upgrades — up to 2 rares, no mythics.",
+     {"common": 8,  "uncommon": 5,  "rare": 2, "mythic": 0}, "wildcard"),
+    ("competitive", "Competitive",   "Meaningful upgrades — up to 6 rares and 2 mythics.",
+     {"common": 20, "uncommon": 12, "rare": 6, "mythic": 2}, "performance"),
+    ("optimized",   "Optimized",     "Best possible build within your wildcard budget.",
+     None, "performance"),
+]
 
 
 @router.post("", response_model=list[DeckVariantResponse])
@@ -338,22 +347,46 @@ def build(req: BuildRequest):
     wc = req.wildcard_budget.model_dump()
 
     variants = []
-    for vk in ("performance", "wildcard", "consistency"):
+    for vk, label, description, budget_preset, solver_vk in VARIANT_PRESETS:
+        build_budget = budget_preset if budget_preset is not None else wc
+
         result = build_variant(
             commander=commander,
             candidates=candidates,
             owned_set=owned_set,
             profile=profile,
-            wildcard_budget=wc,
-            variant=vk,
+            wildcard_budget=build_budget,
+            variant=solver_vk,
             time_limit_s=5.0,
             strategy_weights=strategy_weights,
         )
-        label, description = VARIANT_META[vk]
+
+        # Free tier: if CP-SAT can't satisfy role minimums, relax them and retry.
+        # The user always deserves a playable deck from their own collection.
+        if vk == "free" and result.infeasible:
+            relaxed = deepcopy(profile)
+            for role in relaxed.role_targets:
+                relaxed.role_targets[role] = RoleTarget(
+                    min=0, preferred=relaxed.role_targets[role].preferred
+                )
+            result = build_variant(
+                commander=commander,
+                candidates=candidates,
+                owned_set=owned_set,
+                profile=relaxed,
+                wildcard_budget=build_budget,
+                variant=solver_vk,
+                time_limit_s=5.0,
+                strategy_weights=strategy_weights,
+            )
+            if result.cards:
+                result.infeasible = False
+
         variants.append(
             _build_variant_response(
                 result, vk, label, description, strategy_name, req.profile,
                 candidates, owned_set, profile,
+                solver_variant=solver_vk,
                 strategy_weights=strategy_weights,
             )
         )

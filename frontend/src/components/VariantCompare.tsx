@@ -41,23 +41,38 @@ function CurveBars({ curve }: { curve: Record<number, number> }) {
   );
 }
 
+// Canonical display order — Free first so users see the no-cost option immediately.
+const VARIANT_ORDER = ['free', 'cheap', 'competitive', 'optimized'];
+
 export default function VariantCompare({ variants, onSelect, onBack }: Props) {
   const priorityRoles = ['evasive_enabler', 'etb_payoff', 'draw', 'counterspell', 'creature_removal', 'interaction', 'ramp'];
 
+  const sorted = [...variants].sort((a, b) => {
+    const ai = VARIANT_ORDER.indexOf(a.variantKey);
+    const bi = VARIANT_ORDER.indexOf(b.variantKey);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+
   return (
     <div className="step compare-step">
-      <h2>Compare Variants</h2>
+      <h2>Compare Builds</h2>
       <p className="step-desc">
-        Three builds for <strong>{variants[0]?.commander.name}</strong>. Click a variant to view the full deck.
+        Four builds for <strong>{variants[0]?.commander.name}</strong>. Click any to view the full deck.
       </p>
 
-      <div className="variants-grid">
-        {variants.map(v => (
-          <div key={v.variantKey} className="variant-card">
+      <div className="variants-grid variants-grid--four">
+        {sorted.map(v => (
+          <div
+            key={v.variantKey}
+            className={`variant-card ${v.variantKey === 'free' ? 'variant-card--free' : ''} ${v.infeasible ? 'variant-card--infeasible' : ''}`}
+          >
             <div className="variant-header">
               <h3>
                 {v.label}
-                {v.infeasible && <span className="infeasible-badge">budget exceeded</span>}
+                {v.variantKey === 'free' && !v.infeasible && (
+                  <span className="free-badge">✓ FREE</span>
+                )}
+                {v.infeasible && <span className="infeasible-badge">not enough cards</span>}
               </h3>
               <p className="variant-desc">{v.description}</p>
             </div>
@@ -95,8 +110,12 @@ export default function VariantCompare({ variants, onSelect, onBack }: Props) {
                 .map(r => <RoleBar key={r} label={r} count={v.roleCounts[r] ?? 0} />)}
             </div>
 
-            <button className="btn-primary variant-select" onClick={() => onSelect(v)}>
-              View Full Deck
+            <button
+              className={`btn-primary variant-select ${v.variantKey === 'free' ? 'btn-free' : ''}`}
+              onClick={() => onSelect(v)}
+              disabled={v.infeasible}
+            >
+              {v.infeasible ? 'Not enough owned cards' : 'View Full Deck'}
             </button>
           </div>
         ))}

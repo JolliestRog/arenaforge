@@ -86,6 +86,10 @@ export default function DeckView({ variant, onBack, onViewGuide }: Props) {
   const lands = variant.cards.filter(c => c.card.isLand);
   const spells = variant.cards.filter(c => !c.card.isLand);
   const notOwned = variant.cards.filter(c => !c.owned);
+  const wc = variant.wildcardCost;
+  const totalWildcardsNeeded = wc.common + wc.uncommon + wc.rare + wc.mythic;
+  // Cards that actually need wildcards (excludes free basics where wildcardCost is null)
+  const cardsNeedingWildcards = notOwned.filter(c => c.wildcardCost != null);
 
   function handleHover(name: string | null, e?: React.MouseEvent) {
     setTooltip(name && e ? { name, x: e.clientX, y: e.clientY } : null);
@@ -110,7 +114,7 @@ export default function DeckView({ variant, onBack, onViewGuide }: Props) {
         <div className="deck-quick-stats">
           <span>{variant.cards.length + 1} cards</span>
           <span>{(variant.functionalHandEstimate * 100).toFixed(1)}% functional hand</span>
-          <span>{notOwned.length} wildcards needed</span>
+          <span>{totalWildcardsNeeded} wildcards needed</span>
         </div>
       </div>
 
@@ -238,11 +242,11 @@ export default function DeckView({ variant, onBack, onViewGuide }: Props) {
 
           <section className="analysis-section">
             <h3>Cards Requiring Wildcards</h3>
-            {notOwned.length === 0 ? (
+            {cardsNeedingWildcards.length === 0 ? (
               <p className="muted">All cards are in your collection!</p>
             ) : (
               <div className="not-owned-list">
-                {notOwned.map(dc => (
+                {cardsNeedingWildcards.map(dc => (
                   <div key={dc.card.name} className="not-owned-row">
                     <RarityDot rarity={dc.card.rarity} />
                     <span>{dc.card.name}</span>

@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import type { DeckVariant } from '../lib/types';
 import { generatePlayGuide } from '../lib/guide';
 
@@ -36,9 +38,34 @@ function GuideSection({ title, children }: { title: string; children: React.Reac
 
 export default function PlayGuideStep({ variant, onBack }: Props) {
   const guide = generatePlayGuide(variant);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+
+  useEffect(() => {
+    QRCode.toDataURL('https://deckforge.facey.page', {
+      width: 140,
+      margin: 1,
+      color: { dark: '#1a1a2e', light: '#ffffff' },
+    }).then(setQrDataUrl);
+  }, []);
+
+  function handlePrint() {
+    window.print();
+  }
 
   return (
-    <div className="step guide-step">
+    <div className="step guide-step" id="guide-print-root">
+
+      {/* ── Print-only header ── */}
+      <div className="guide-print-header" aria-hidden="true">
+        <img src="/dragon-left.png" alt="" className="guide-print-dragon guide-print-dragon--left" />
+        <div className="guide-print-title-block">
+          <div className="guide-print-wordmark">DeckForge</div>
+          <div className="guide-print-subtitle">deckforge.facey.page</div>
+        </div>
+        <img src="/dragon-right.png" alt="" className="guide-print-dragon guide-print-dragon--right" />
+      </div>
+
+      {/* ── Screen header ── */}
       <div className="guide-header">
         <div className="guide-header-main">
           <h1 className="guide-commander">{guide.commanderName}</h1>
@@ -151,8 +178,34 @@ export default function PlayGuideStep({ variant, onBack }: Props) {
 
       </div>
 
-      <div className="step-actions">
+      {/* ── Print footer (shown only in print) ── */}
+      <div className="guide-print-footer" aria-hidden="true">
+        {qrDataUrl && (
+          <div className="guide-print-qr-block">
+            <img src={qrDataUrl} alt="QR code for deckforge.facey.page" className="guide-print-qr" />
+            <div className="guide-print-qr-label">Scan to build your next deck</div>
+          </div>
+        )}
+        <div className="guide-print-url">deckforge.facey.page</div>
+        <div className="guide-print-disclaimer">
+          DeckForge is an unofficial fan tool · not affiliated with Wizards of the Coast or MTG Arena
+        </div>
+      </div>
+
+      {/* ── Screen actions ── */}
+      <div className="step-actions guide-screen-actions">
         <button className="btn-ghost" onClick={onBack}>Back to Deck</button>
+        <a
+          className="btn-ghost guide-bmc-link"
+          href="https://buymeacoffee.com/facey"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          ☕ Support DeckForge
+        </a>
+        <button className="btn-primary" onClick={handlePrint}>
+          Print / Save as PDF
+        </button>
       </div>
     </div>
   );

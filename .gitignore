@@ -16,8 +16,9 @@ exporter/.pytest_cache/
 exporter/**/__pycache__/
 exporter/**/*.pyc
 strategy/.venv/
-strategy/__pycache__/
 strategy/**/__pycache__/
 strategy/**/*.pyc
+strategy/__pycache__/
+strategy/*.pyc
 strategy/.pytest_cache/
 strategy/data/

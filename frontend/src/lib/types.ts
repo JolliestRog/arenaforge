@@ -79,7 +79,7 @@ export interface FeaturedCards {
 }
 
 export interface DeckVariant {
-  variantKey: 'performance' | 'wildcard' | 'consistency';
+  variantKey: 'free' | 'cheap' | 'competitive' | 'optimized' | string;
   label: string;
   description: string;
   strategyName: string;
@@ -141,4 +141,56 @@ export interface AnalysisResult {
   strongest_colors: string[];
   summary: string;
   recommendations: CommanderRecommendation[];
+}
+
+// ── Collection analysis V2 types ───────────────────────────────────────────────
+
+export interface WildcardCostByRarity {
+  common: number;
+  uncommon: number;
+  rare: number;
+  mythic: number;
+}
+
+export interface RoleCoverageItem {
+  role: string;
+  target: number;
+  deck_count: number;
+  meets_minimum: boolean;
+  meets_preferred: boolean;
+}
+
+export interface CommanderRecommendationV2 {
+  name: string;
+  color_identity: string[];
+  cmc: number;
+  rarity: Rarity;
+  type_line: string;
+  owned: boolean;
+  strategy_id: string;
+  strategy_name: string;
+  strategy_intrinsic_fit: number;
+  strategy_collection_coverage: number;
+  build_readiness: number;
+  wildcard_cost_by_rarity: WildcardCostByRarity;
+  mana_readiness: number;
+  strategy_role_coverage: RoleCoverageItem[];
+  commander_owned: boolean;
+  confidence: number;
+  key_owned: string[];
+  key_missing: { name: string; rarity: string }[];
+  strengths: string[];
+  deficits: string[];
+}
+
+export interface AnalysisResultV2 {
+  total_unique: number;
+  total_copies: number;
+  color_strength: ColorStrength[];
+  type_distribution: Record<string, number>;
+  role_counts: Record<string, number>;
+  strongest_colors: string[];
+  summary: string;
+  strategy_filter: string;
+  recommendations: CommanderRecommendationV2[];
 }
