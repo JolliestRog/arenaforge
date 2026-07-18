@@ -207,12 +207,49 @@ function CommanderCard({
   );
 }
 
+// ── Strategy filter ───────────────────────────────────────────────────────────
+
+const MACRO_BY_PROFILE: Record<string, string> = {
+  spellslinger_tempo: 'Tempo',
+  tokens_go_wide: 'Aggro',
+  typal_midrange: 'Midrange',
+  graveyard_reanimator: 'Midrange',
+  counters_go_tall: 'Midrange',
+  artifact_synergy_midrange: 'Midrange',
+  enchantress_control: 'Control',
+  lifegain_midrange: 'Midrange',
+  aura_voltron: 'Midrange',
+  equipment_voltron: 'Midrange',
+  big_mana_tap_control: 'Control',
+  aristocrats_sacrifice_midrange: 'Midrange',
+  landfall_ramp: 'Ramp',
+  satoru_toolbox: 'Tempo',
+  yuriko_tempo: 'Tempo',
+  talion_control: 'Control',
+  yuffie_ninjutsu: 'Tempo',
+  tempo: 'Tempo',
+  control: 'Control',
+  midrange: 'Midrange',
+  value: 'Combo',
+};
+
+const MACRO_ORDER = ['All', 'Tempo', 'Aggro', 'Control', 'Midrange', 'Ramp', 'Combo'];
+
+function macroLabel(profileId: string): string {
+  return MACRO_BY_PROFILE[profileId] ?? 'Other';
+}
+
+const CARDS_PER_SECTION = 6;
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function AnalyzeStep({ collection, cachedResult, onResult, onSelectCommander, onBack }: Props) {
   const [result, setResult] = useState<AnalysisResult | null>(cachedResult ?? null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(cachedResult == null);
+  const [filterMacro, setFilterMacro] = useState('All');
+  const [showAllOwned, setShowAllOwned] = useState(false);
+  const [showAllUnowned, setShowAllUnowned] = useState(false);
 
   useEffect(() => {
     if (cachedResult != null) return;
@@ -265,20 +302,52 @@ export default function AnalyzeStep({ collection, cachedResult, onResult, onSele
       </div>
 
       <div className="analyze-recs">
-        <h3 className="analyze-recs-title">Commander Recommendations</h3>
+        <div className="analyze-recs-header">
+          <h3 className="analyze-recs-title">Commander Recommendations</h3>
+          <div className="strategy-filter">
+            {MACRO_ORDER.map(m => {
+              const count = m === 'All'
+                ? result.recommendations.length
+                : result.recommendations.filter(r => macroLabel(r.profile_id) === m).length;
+              if (m !== 'All' && count === 0) return null;
+              return (
+                <button
+                  key={m}
+                  className={`strategy-chip ${filterMacro === m ? 'strategy-chip--active' : ''}`}
+                  onClick={() => { setFilterMacro(m); setShowAllOwned(false); setShowAllUnowned(false); }}
+                >
+                  {m}
+                  <span className="strategy-chip-count">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {(() => {
-          const owned   = result.recommendations.filter(r => r.owned);
-          const unowned = result.recommendations.filter(r => !r.owned);
+          const filtered = filterMacro === 'All'
+            ? result.recommendations
+            : result.recommendations.filter(r => macroLabel(r.profile_id) === filterMacro);
+          const owned   = filtered.filter(r => r.owned);
+          const unowned = filtered.filter(r => !r.owned);
+          const visOwned   = showAllOwned   ? owned   : owned.slice(0, CARDS_PER_SECTION);
+          const visUnowned = showAllUnowned ? unowned : unowned.slice(0, CARDS_PER_SECTION);
+
           return (
             <>
               {owned.length > 0 && (
                 <>
                   <p className="analyze-recs-sub">Commanders you own, ranked by how well your collection supports them.</p>
                   <div className="cmdr-card-grid">
-                    {owned.map(rec => (
+                    {visOwned.map(rec => (
                       <CommanderCard key={rec.name} rec={rec} onSelect={() => onSelectCommander(rec.name, rec.profile_id)} />
                     ))}
                   </div>
+                  {owned.length > CARDS_PER_SECTION && !showAllOwned && (
+                    <button className="btn-ghost show-more-btn" onClick={() => setShowAllOwned(true)}>
+                      Show {owned.length - CARDS_PER_SECTION} more owned commanders
+                    </button>
+                  )}
                 </>
               )}
               {unowned.length > 0 && (
@@ -286,11 +355,19 @@ export default function AnalyzeStep({ collection, cachedResult, onResult, onSele
                   <h4 className="analyze-recs-subtitle">Commanders worth building toward</h4>
                   <p className="analyze-recs-sub">You don't own these yet, but your collection already supports the strategy well.</p>
                   <div className="cmdr-card-grid">
-                    {unowned.map(rec => (
+                    {visUnowned.map(rec => (
                       <CommanderCard key={rec.name} rec={rec} onSelect={() => onSelectCommander(rec.name, rec.profile_id)} />
                     ))}
                   </div>
+                  {unowned.length > CARDS_PER_SECTION && !showAllUnowned && (
+                    <button className="btn-ghost show-more-btn" onClick={() => setShowAllUnowned(true)}>
+                      Show {unowned.length - CARDS_PER_SECTION} more commanders to build toward
+                    </button>
+                  )}
                 </>
+              )}
+              {filtered.length === 0 && (
+                <p className="analyze-recs-sub">No recommendations match this filter.</p>
               )}
             </>
           );

@@ -538,9 +538,24 @@ button { cursor: pointer; border: none; font: inherit; }
 
 /* commander rec section */
 .analyze-recs { display: flex; flex-direction: column; gap: 16px; }
+.analyze-recs-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .analyze-recs-title { font-size: 1.2rem; color: var(--gold); }
 .analyze-recs-subtitle { font-size: 1rem; color: var(--accent2); margin: 32px 0 4px; }
 .analyze-recs-sub { font-size: 0.85rem; color: var(--text-dim); margin-bottom: 16px; }
+
+.strategy-filter { display: flex; flex-wrap: wrap; gap: 6px; }
+.strategy-chip {
+  display: flex; align-items: center; gap: 5px;
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--text-dim); padding: 4px 10px; border-radius: 20px;
+  font-size: 0.78rem; font-weight: 500; cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.strategy-chip:hover { border-color: var(--accent); color: var(--text); }
+.strategy-chip--active { background: rgba(92,138,255,.12); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.strategy-chip-count { font-size: 0.7rem; opacity: .7; }
+
+.show-more-btn { align-self: flex-start; font-size: 0.82rem; padding: 6px 14px; }
 .cmdr-card-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;
 }
