@@ -1,6 +1,10 @@
 """Regression coverage for deck variant availability and status semantics."""
 
 from __future__ import annotations
+import pytest
+
+pytestmark = [pytest.mark.live_data, pytest.mark.usefixtures("live_databases")]
+
 
 from routers.build import BuildRequest, WildcardBudget, build
 from solver.model import BuildResult

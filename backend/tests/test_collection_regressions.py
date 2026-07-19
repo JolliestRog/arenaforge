@@ -1,6 +1,10 @@
 """Regression coverage for Arena name matching, Yuriko, and Free mana bases."""
 
 from __future__ import annotations
+import pytest
+
+pytestmark = [pytest.mark.live_data, pytest.mark.usefixtures("live_databases")]
+
 
 from card_names import build_card_name_index, normalize_collection
 from db import get_db

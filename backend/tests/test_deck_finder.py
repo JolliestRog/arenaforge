@@ -1,6 +1,10 @@
 """Needle-in-a-random-collection regressions for recommendation ranking."""
 
 from __future__ import annotations
+import pytest
+
+pytestmark = [pytest.mark.live_data, pytest.mark.usefixtures("live_databases")]
+
 
 import random
 

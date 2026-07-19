@@ -46,6 +46,9 @@ def run_pipeline(
     db_path: Path,
     do_reset: bool,
     source: str = "auto",
+    *,
+    scryfall_json: Path | None = None,
+    cards_db_path: Path | None = None,
 ) -> dict:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     log = logging.getLogger("strategy.run")
@@ -61,8 +64,8 @@ def run_pipeline(
     seed_tag_catalog(conn)
     seed_templates(conn)
 
-    scryfall = DEFAULT_JSON if source in ("auto", "json") else None
-    cards_db = DEFAULT_CARDS_DB if source in ("auto", "db") else None
+    scryfall = (scryfall_json or DEFAULT_JSON) if source in ("auto", "json") else None
+    cards_db = (cards_db_path or DEFAULT_CARDS_DB) if source in ("auto", "db") else None
     if source == "json":
         cards_db = None
     if source == "db":
@@ -111,6 +114,7 @@ def run_pipeline(
         "source":             source_label,
     }
     log.info("pipeline summary: %s", summary)
+    conn.close()
     return summary
 
 

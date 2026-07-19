@@ -5,6 +5,10 @@ The suite is skipped automatically when the DBs are absent (see conftest.py).
 """
 
 from __future__ import annotations
+import pytest
+
+pytestmark = [pytest.mark.live_data, pytest.mark.usefixtures("live_databases")]
+
 
 from routers.analyze_v2 import (
     AnalysisResultV2,
