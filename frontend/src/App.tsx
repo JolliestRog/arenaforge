@@ -15,7 +15,7 @@ const STEPS: { key: Step; label: string }[] = [
   { key: 'import',  label: 'Import' },
   { key: 'analyze', label: 'Collection Profile' },
   { key: 'build',   label: 'Commander & Budget' },
-  { key: 'compare', label: 'Compare Builds' },
+  { key: 'compare', label: 'Compare Budget Variants' },
   { key: 'deck',    label: 'Deck & Export' },
   { key: 'guide',   label: 'Play Guide' },
 ];
@@ -89,14 +89,19 @@ function App() {
     setLoading(true);
     try {
       const result = await buildDeck(req.collection, req.commander, req.profile, req.wildcardBudget);
-      if (result.length === 0) {
+      const allUnavailable = result.length === 0
+        || result.every(variant => variant.buildStatus === 'unavailable');
+      if (allUnavailable) {
+        const strategyName = result[0]?.strategyName || req.profile;
         setError(
-          `No deck variants returned for ${req.commander}. Try a different commander or strategy.`
+          `No playable build found for ${req.commander} — ${strategyName}. `
+          + 'The available card pool and wildcard budget cannot make a complete deck. '
+          + 'Try a different strategy, commander, or budget.'
         );
+        setVariants([]);
         setStep('build');
       } else {
         setRequest(req);
-        // Show all variants — the "free" tier is always feasible; others may carry infeasible badge.
         setVariants(result);
         setStep('compare');
       }

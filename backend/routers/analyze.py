@@ -7,6 +7,7 @@ from itertools import combinations
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from card_names import build_card_name_index, normalize_collection
 from db import get_db
 from solver.roles import infer_roles
 from solver.profiles import PROFILES
@@ -345,13 +346,13 @@ def _score_commander(
 
 @router.post("", response_model=AnalysisResult)
 def analyze(collection: list[OwnedCard]):
-    owned_set    = {c.name for c in collection if c.count >= 1}
-    total_unique = len(owned_set)
-    total_copies = sum(c.count for c in collection)
-
     with get_db() as conn:
         all_rows = conn.execute("SELECT * FROM cards ORDER BY name").fetchall()
     all_cards = [dict(r) for r in all_rows]
+    owned_set, _, total_copies = normalize_collection(
+        collection, build_card_name_index(all_cards)
+    )
+    total_unique = len(owned_set)
 
     roles_cache: dict[str, list[str]] = {c["name"]: infer_roles(c) for c in all_cards}
 

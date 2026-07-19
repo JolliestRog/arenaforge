@@ -361,6 +361,7 @@ export function generateDeck(request: BuildRequest): DeckVariant[] {
       description: vd.description,
       strategyName: '',
       strategyId: request.profile,
+      macroPlan: '',
       commander: commanderCard,
       cards,
       roleCounts: roleCounts(cards),
@@ -371,6 +372,8 @@ export function generateDeck(request: BuildRequest): DeckVariant[] {
       excludedHighScorers: excluded,
       arenaExport: arenaExport(commanderCard, cards),
       score: cards.reduce((sum, c) => sum + c.score, 0),
+      buildStatus: 'complete' as const,
+      unavailableReason: null,
       infeasible: false,
       featuredCards: { engines: [], finishers: [], setup: [], interaction: [], protection: [], ramp: [] },
     };

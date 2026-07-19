@@ -23,6 +23,9 @@ services:
       dockerfile: Dockerfile
     container_name: arenaforge-api
     restart: unless-stopped
+    cpus: 2.0
+    mem_limit: 1200m
+    pids_limit: 128
     volumes:
       - ./backend/data:/app/data
       - ./strategy/data:/app/strategy_data:ro
@@ -38,6 +41,15 @@ services:
       - traefik.http.middlewares.arenaforge-api-strip.stripprefix.prefixes=/api
       - traefik.http.routers.arenaforge-api.middlewares=arenaforge-api-strip
       - traefik.http.services.arenaforge-api.loadbalancer.server.port=8000
+      - traefik.http.routers.arenaforge-analyze.rule=Host(`deckforge.facey.page`) && Path(`/api/analyze/v2`) && Method(`POST`)
+      - traefik.http.routers.arenaforge-analyze.entrypoints=websecure
+      - traefik.http.routers.arenaforge-analyze.priority=100
+      - traefik.http.routers.arenaforge-analyze.tls.certresolver=le
+      - traefik.http.routers.arenaforge-analyze.service=arenaforge-api
+      - traefik.http.routers.arenaforge-analyze.middlewares=arenaforge-analyze-ratelimit,arenaforge-api-strip
+      - traefik.http.middlewares.arenaforge-analyze-ratelimit.ratelimit.average=6
+      - traefik.http.middlewares.arenaforge-analyze-ratelimit.ratelimit.period=1m
+      - traefik.http.middlewares.arenaforge-analyze-ratelimit.ratelimit.burst=2
 
 networks:
   proxy:

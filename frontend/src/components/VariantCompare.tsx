@@ -44,6 +44,12 @@ function CurveBars({ curve }: { curve: Record<number, number> }) {
 // Canonical display order — Free first so users see the no-cost option immediately.
 const VARIANT_ORDER = ['free', 'cheap', 'competitive', 'optimized'];
 
+function unavailableMessage(reason: DeckVariant['unavailableReason']): string {
+  if (reason === 'solver_timeout') return 'The solver timed out before finding a complete deck.';
+  if (reason === 'solver_error') return 'The solver could not evaluate this budget tier.';
+  return 'The card pool or wildcard budget cannot produce a complete deck.';
+}
+
 export default function VariantCompare({ variants, onSelect, onBack }: Props) {
   const priorityRoles = ['evasive_enabler', 'etb_payoff', 'draw', 'counterspell', 'creature_removal', 'interaction', 'ramp'];
 
@@ -55,26 +61,38 @@ export default function VariantCompare({ variants, onSelect, onBack }: Props) {
 
   return (
     <div className="step compare-step">
-      <h2>Compare Builds</h2>
+      <h2>Compare Budget Variants</h2>
       <p className="step-desc">
         Four builds for <strong>{variants[0]?.commander.name}</strong>. Click any to view the full deck.
       </p>
 
       <div className="variants-grid variants-grid--four">
-        {sorted.map(v => (
+        {sorted.map(v => {
+          const unavailable = v.buildStatus === 'unavailable';
+          const roleRelaxed = v.buildStatus === 'role_relaxed';
+          return (
           <div
             key={v.variantKey}
-            className={`variant-card ${v.variantKey === 'free' ? 'variant-card--free' : ''} ${v.infeasible ? 'variant-card--infeasible' : ''}`}
+            className={`variant-card ${v.variantKey === 'free' ? 'variant-card--free' : ''} ${unavailable ? 'variant-card--infeasible' : ''}`}
           >
             <div className="variant-header">
               <h3>
                 {v.label}
-                {v.variantKey === 'free' && !v.infeasible && (
+                {v.variantKey === 'free' && !unavailable && (
                   <span className="free-badge">✓ FREE</span>
                 )}
-                {v.infeasible && <span className="infeasible-badge">not enough cards</span>}
+                {roleRelaxed && <span className="relaxed-badge">role targets relaxed</span>}
+                {unavailable && <span className="infeasible-badge">unavailable</span>}
               </h3>
               <p className="variant-desc">{v.description}</p>
+              {roleRelaxed && (
+                <p className="variant-status-note">
+                  Complete deck found, but some preferred strategy roles could not be met.
+                </p>
+              )}
+              {unavailable && (
+                <p className="variant-status-note">{unavailableMessage(v.unavailableReason)}</p>
+              )}
             </div>
 
             <div className="variant-stats">
@@ -84,7 +102,7 @@ export default function VariantCompare({ variants, onSelect, onBack }: Props) {
               </div>
               <div className="stat-row">
                 <span className="stat-label">Cards in build</span>
-                <span className="stat-value">{v.cards.length + 1}</span>
+                <span className="stat-value">{v.cards.length > 0 ? v.cards.length + 1 : 0}</span>
               </div>
               <div className="stat-row">
                 <span className="stat-label">Wildcards needed</span>
@@ -113,12 +131,12 @@ export default function VariantCompare({ variants, onSelect, onBack }: Props) {
             <button
               className={`btn-primary variant-select ${v.variantKey === 'free' ? 'btn-free' : ''}`}
               onClick={() => onSelect(v)}
-              disabled={v.infeasible}
+              disabled={unavailable}
             >
-              {v.infeasible ? 'Not enough owned cards' : 'View Full Deck'}
+              {unavailable ? 'Unavailable at this budget' : 'View Full Deck'}
             </button>
           </div>
-        ))}
+        )})}
       </div>
 
       <div className="step-actions">

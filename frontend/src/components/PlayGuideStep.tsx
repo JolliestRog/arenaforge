@@ -8,14 +8,6 @@ interface Props {
   onBack: () => void;
 }
 
-function FitBadge({ label }: { label: string }) {
-  const cls =
-    label === 'Recommended' ? 'fit-badge fit-badge--rec'
-    : label === 'Viable'    ? 'fit-badge fit-badge--via'
-    :                         'fit-badge fit-badge--exp';
-  return <span className={cls}>{label}</span>;
-}
-
 function CardPills({ cards, fallback }: { cards: string[]; fallback?: string }) {
   if (cards.length === 0) {
     return <span className="guide-empty">{fallback ?? 'None identified in this build'}</span>;
@@ -71,7 +63,6 @@ export default function PlayGuideStep({ variant, onBack }: Props) {
           <h1 className="guide-commander">{guide.commanderName}</h1>
           <div className="guide-meta">
             <span className="guide-strategy">{guide.strategyName}</span>
-            <FitBadge label={guide.fitBadge} />
           </div>
         </div>
         <p className="guide-macro">{guide.macroPlan}</p>

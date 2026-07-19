@@ -15,6 +15,9 @@ SCORE_SCALE = 1000  # float scores → integers for CP-SAT
 WC_VALUES = {"common": 1, "uncommon": 2, "rare": 8, "mythic": 16, "special": 8}
 
 Variant = Literal["performance", "wildcard", "consistency", "quality"]
+BuildStatus = Literal["complete", "role_relaxed", "unavailable"]
+UnavailableReason = Literal["card_pool_or_budget", "solver_timeout", "solver_error"]
+FREE_BASIC_LANDS = frozenset({"Plains", "Island", "Swamp", "Mountain", "Forest", "Wastes"})
 
 
 @dataclass
@@ -32,15 +35,27 @@ class BuildResult:
     cards: list[DeckCard]
     commander: dict
     score: float
-    infeasible: bool = False
+    status: BuildStatus = "complete"
+    unavailable_reason: UnavailableReason | None = None
+
+    @property
+    def infeasible(self) -> bool:
+        """Compatibility view: only a build with no usable deck is infeasible."""
+        return self.status == "unavailable"
+
+
+def _is_free_basic_land(card: dict) -> bool:
+    return (
+        bool(card["is_land"])
+        and card["name"] in FREE_BASIC_LANDS
+        and "Basic Land" in (card.get("type_line") or "")
+    )
 
 
 def _wc_cost_for(card: dict, owned: bool) -> str | None:
     """Wildcard rarity needed to craft this card, or None."""
-    if owned:
+    if owned or _is_free_basic_land(card):
         return None
-    if card["is_land"] and card["rarity"] == "common":
-        return None  # basic lands are free
     return card["rarity"]
 
 
@@ -162,15 +177,27 @@ def build_variant(
     strategy_weights: dict[str, float] | None = None,
 ) -> BuildResult:
     sw = strategy_weights or {}
+    commander_colors = json.loads(commander.get("color_identity") or "[]")
+    basic_by_color = {
+        "W": "Plains", "U": "Island", "B": "Swamp", "R": "Mountain", "G": "Forest",
+    }
+    allowed_basics = {
+        basic_by_color[color] for color in commander_colors if color in basic_by_color
+    } or {"Wastes"}
+
     # Attach roles and scores to each candidate
     annotated: list[tuple[dict, list[str], bool, float]] = []
     for card in candidates:
         if card["name"] == commander["name"]:
             continue
+        is_free_basic = _is_free_basic_land(card)
+        if is_free_basic and card["name"] not in allowed_basics:
+            continue
         roles = infer_roles(card)
-        owned = card["name"] in owned_set
+        owned = is_free_basic or card["name"] in owned_set
         score = _score_card(card, roles, profile, owned, variant, sw.get(card["name"], 0.0))
-        annotated.append((card, roles, owned, score))
+        copies = profile.land_target if is_free_basic else 1
+        annotated.extend((card, roles, owned, score) for _ in range(copies))
 
     # Cap the pool size so CP-SAT remains tractable for large color identities.
     # Lands are kept in full; non-lands are trimmed to the top-scored candidates.
@@ -184,7 +211,10 @@ def build_variant(
 
     n = len(annotated)
     if n < DECK_SIZE:
-        return BuildResult(cards=[], commander=commander, score=0, infeasible=True)
+        return BuildResult(
+            cards=[], commander=commander, score=0,
+            status="unavailable", unavailable_reason="card_pool_or_budget",
+        )
 
     model = cp_model.CpModel()
     x = [model.new_bool_var(f"c{i}") for i in range(n)]
@@ -211,8 +241,7 @@ def build_variant(
                 continue
             unowned_rarity = [
                 x[i] for i, (c, _, owned, _) in enumerate(annotated)
-                if not owned and c["rarity"] == rarity
-                and not (c["is_land"] and c["rarity"] == "common")
+                if _wc_cost_for(c, owned) == rarity
             ]
             if unowned_rarity:
                 model.add(sum(unowned_rarity) <= budget)
@@ -240,20 +269,27 @@ def build_variant(
                     continue
                 unowned_rarity2 = [
                     x2[i] for i, (c, _, owned, _) in enumerate(annotated)
-                    if not owned and c["rarity"] == rarity
-                    and not (c["is_land"] and c["rarity"] == "common")
+                    if _wc_cost_for(c, owned) == rarity
                 ]
                 if unowned_rarity2:
                     model2.add(sum(unowned_rarity2) <= budget)
         model2.maximize(sum(int_scores[i] * x2[i] for i in range(n)))
         status = solver.solve(model2)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-            # Budget is genuinely too tight — signal infeasible to caller
-            return BuildResult(cards=[], commander=commander, score=0, infeasible=True)
+            if status == cp_model.UNKNOWN:
+                reason: UnavailableReason = "solver_timeout"
+            elif status == cp_model.MODEL_INVALID:
+                reason = "solver_error"
+            else:
+                reason = "card_pool_or_budget"
+            return BuildResult(
+                cards=[], commander=commander, score=0,
+                status="unavailable", unavailable_reason=reason,
+            )
         x = x2
-        infeasible_flag = True  # succeeded with relaxed role constraints
+        build_status: BuildStatus = "role_relaxed"
     else:
-        infeasible_flag = False
+        build_status = "complete"
 
     selected: list[DeckCard] = []
     total_score = 0.0
@@ -265,30 +301,12 @@ def build_variant(
                                      wildcard_cost=wc, reason=reason, score=score))
             total_score += score
 
-    # Pad with basics if short on lands (Arena allows unlimited basics)
-    land_count = sum(1 for dc in selected if dc.card["is_land"])
-    basic_by_color = {
-        "W": "Plains", "U": "Island", "B": "Swamp", "R": "Mountain", "G": "Forest",
-    }
-    commander_colors = json.loads(commander.get("color_identity") or "[]")
-    allowed_basics = [basic_by_color[c] for c in commander_colors if c in basic_by_color]
-    if not allowed_basics:
-        allowed_basics = ["Wastes"]
-    basics = {c["name"]: c for c in candidates if c["name"] in allowed_basics}
-    available_basics = [name for name in allowed_basics if name in basics]
-    pad_index = 0
-    while land_count < target and len(selected) < DECK_SIZE:
-        if not available_basics:
-            break
-        basic_name = available_basics[pad_index % len(available_basics)]
-        pad_index += 1
-        basic = basics[basic_name]
-        selected.append(DeckCard(card=basic, roles=["land"], owned=True,
-                                 wildcard_cost=None, reason="basic land pad", score=0))
-        land_count += 1
-
-    return BuildResult(cards=selected, commander=commander, score=total_score,
-                       infeasible=infeasible_flag)
+    return BuildResult(
+        cards=selected,
+        commander=commander,
+        score=total_score,
+        status=build_status,
+    )
 
 
 def arena_export(commander: dict, cards: list[DeckCard]) -> str:

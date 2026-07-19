@@ -84,6 +84,7 @@ export interface DeckVariant {
   description: string;
   strategyName: string;
   strategyId: string;
+  macroPlan: string;
   commander: CardData;
   cards: DeckCard[];
   roleCounts: Record<string, number>;
@@ -94,6 +95,8 @@ export interface DeckVariant {
   excludedHighScorers: ExcludedCard[];
   arenaExport: string;
   score: number;
+  buildStatus: 'complete' | 'role_relaxed' | 'unavailable';
+  unavailableReason: 'card_pool_or_budget' | 'solver_timeout' | 'solver_error' | null;
   infeasible: boolean;
   featuredCards: FeaturedCards;
 }
@@ -160,6 +163,32 @@ export interface RoleCoverageItem {
   meets_preferred: boolean;
 }
 
+export interface CraftLeverageCard {
+  name: string;
+  rarity: 'common' | 'uncommon' | 'rare' | 'mythic';
+  deck_count: number;
+}
+
+export interface CraftLeverage {
+  lands_by_rarity?: Partial<Record<
+    'common' | 'uncommon' | 'rare' | 'mythic',
+    CraftLeverageCard[]
+  >>;
+  cards_by_rarity: Partial<Record<
+    'common' | 'uncommon' | 'rare' | 'mythic',
+    CraftLeverageCard[]
+  >>;
+  total_decks_analyzed: number;
+}
+
+export interface AnalysisQueueStatus {
+  active: number;
+  waiting: number;
+  max_active: number;
+  max_waiting: number;
+  accepting: boolean;
+}
+
 export interface CommanderRecommendationV2 {
   name: string;
   color_identity: string[];
@@ -202,6 +231,7 @@ export interface AnalysisResultV2 {
   ranking_version: string;
   unmatched_cards: string[];
   analysis_warnings: string[];
+  craft_leverage?: CraftLeverage | null;
   owned_recommendations: CommanderRecommendationV2[];
   unowned_recommendations: CommanderRecommendationV2[];
   recommendations: CommanderRecommendationV2[];

@@ -1,11 +1,11 @@
 import json
-from copy import deepcopy
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import strategy_db
+from card_names import build_card_name_index, normalize_collection
 from db import get_db
 from solver.model import (
     BuildResult, DeckCard, Variant, _score_card, arena_export,
@@ -80,6 +80,7 @@ class DeckVariantResponse(BaseModel):
     description: str
     strategy_name: str
     strategy_id: str
+    macro_plan: str = ""
     commander: CardResponse
     cards: list[DeckCardResponse]
     role_counts: dict[str, int]
@@ -90,6 +91,10 @@ class DeckVariantResponse(BaseModel):
     excluded_high_scorers: list[ExcludedCard]
     arena_export: str
     score: float
+    build_status: Literal["complete", "role_relaxed", "unavailable"]
+    unavailable_reason: Literal[
+        "card_pool_or_budget", "solver_timeout", "solver_error"
+    ] | None = None
     infeasible: bool
     featured_cards: FeaturedCards = FeaturedCards()
 
@@ -183,6 +188,7 @@ def _build_variant_response(
     profile,
     solver_variant: str = "performance",
     strategy_weights: dict[str, float] | None = None,
+    macro_plan: str = "",
 ) -> DeckVariantResponse:
     sw = strategy_weights or {}
     selected_names = {dc.card["name"] for dc in result.cards}
@@ -202,6 +208,7 @@ def _build_variant_response(
         description=description,
         strategy_name=strategy_name,
         strategy_id=strategy_id,
+        macro_plan=macro_plan,
         commander=_card_response(result.commander),
         cards=[
             DeckCardResponse(
@@ -222,6 +229,8 @@ def _build_variant_response(
         excluded_high_scorers=excluded[:5],
         arena_export=arena_export(result.commander, result.cards),
         score=result.score,
+        build_status=result.status,
+        unavailable_reason=result.unavailable_reason,
         infeasible=result.infeasible,
         featured_cards=_featured_cards_for(result.cards),
     )
@@ -233,9 +242,9 @@ def _build_variant_response(
 # budget_preset=None → use the user's wildcard_budget (the "optimized" tier)
 # solver_variant maps to CP-SAT scoring mode ("wildcard" prefers owned, "performance" ignores ownership)
 VARIANT_PRESETS = [
-    ("free",        "Free to Play",  "Built entirely from your collection — zero wildcards needed.",
+    ("free",        "Free",          "Built entirely from your collection — zero wildcards needed.",
      {"common": 0, "uncommon": 0, "rare": 0, "mythic": 0},  "wildcard"),
-    ("cheap",       "Budget Build",  "Low-cost upgrades — up to 2 rares, no mythics.",
+    ("cheap",       "Budget",        "Low-cost upgrades — up to 2 rares, no mythics.",
      {"common": 8,  "uncommon": 5,  "rare": 2, "mythic": 0}, "wildcard"),
     ("competitive", "Competitive",   "Meaningful upgrades — up to 6 rares and 2 mythics.",
      {"common": 20, "uncommon": 12, "rare": 6, "mythic": 2}, "performance"),
@@ -250,6 +259,7 @@ def build(req: BuildRequest):
     strategy_weights: dict[str, float] | None = None
     profile = PROFILES.get(req.profile)
     strategy_name: str = ""
+    macro_plan: str = ""
 
     if profile is None:
         # Try loading from strategy DB
@@ -263,6 +273,7 @@ def build(req: BuildRequest):
         if row is None:
             raise HTTPException(status_code=422, detail=f"Unknown profile: {req.profile}")
         strategy_name = row["display_name"]
+        macro_plan = row["macro_plan"] or ""
         profile = profile_from_strategy_rows(
             row["id"],
             row["display_name"],
@@ -272,6 +283,7 @@ def build(req: BuildRequest):
         strategy_weights = strategy_db.fetch_strategy_card_weights(req.commander, req.profile)
     else:
         strategy_name = profile.display_name
+        macro_plan = getattr(profile, "macro_plan", "")
 
     # Fetch commander
     with get_db() as conn:
@@ -294,7 +306,9 @@ def build(req: BuildRequest):
         if set(json.loads(r["color_identity"])).issubset(ci_set)
     ]
 
-    owned_set = {oc.name for oc in req.collection if oc.count >= 1}
+    owned_set, _, _ = normalize_collection(
+        req.collection, build_card_name_index(candidates)
+    )
     wc = req.wildcard_budget.model_dump()
 
     variants = []
@@ -312,33 +326,13 @@ def build(req: BuildRequest):
             strategy_weights=strategy_weights,
         )
 
-        # Free tier: if CP-SAT can't satisfy role minimums, relax them and retry.
-        # The user always deserves a playable deck from their own collection.
-        if vk == "free" and result.infeasible:
-            relaxed = deepcopy(profile)
-            for role in relaxed.role_targets:
-                relaxed.role_targets[role] = RoleTarget(
-                    min=0, preferred=relaxed.role_targets[role].preferred
-                )
-            result = build_variant(
-                commander=commander,
-                candidates=candidates,
-                owned_set=owned_set,
-                profile=relaxed,
-                wildcard_budget=build_budget,
-                variant=solver_vk,
-                time_limit_s=5.0,
-                strategy_weights=strategy_weights,
-            )
-            if result.cards:
-                result.infeasible = False
-
         variants.append(
             _build_variant_response(
                 result, vk, label, description, strategy_name, req.profile,
                 candidates, owned_set, profile,
                 solver_variant=solver_vk,
                 strategy_weights=strategy_weights,
+                macro_plan=macro_plan,
             )
         )
 

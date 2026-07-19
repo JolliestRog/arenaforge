@@ -205,6 +205,8 @@ def test_owned_and_unowned_lanes_are_explicit_unique_and_compatible():
     assert result.recommendations == (
         result.owned_recommendations + result.unowned_recommendations
     )
+    assert len(result.owned_recommendations) <= 12
+    assert len(result.unowned_recommendations) <= 6
 
 
 def test_unowned_lane_is_cost_sorted_before_provisional_fillers():
@@ -299,3 +301,95 @@ def test_invalid_strategy_filter_raises():
     with pytest.raises(HTTPException) as exc:
         _call(EMPTY_FIXTURE, "NotAFilter")
     assert exc.value.status_code == 422
+
+
+def test_craft_leverage_counts_decks_deduplicates_and_excludes_provisional():
+    from routers.analyze_v2 import (
+        CommanderRecommendationV2,
+        _BuiltCandidate,
+        _compute_craft_leverage,
+    )
+
+    def candidate(
+        name: str,
+        missing: list[tuple[str, str, float]],
+        *,
+        provisional: bool = False,
+    ) -> _BuiltCandidate:
+        rec = CommanderRecommendationV2(
+            name=name,
+            color_identity=["U", "B"],
+            cmc=3,
+            rarity="rare",
+            type_line="Legendary Creature",
+            owned=True,
+            strategy_id="control",
+            strategy_name="Control",
+            strategy_intrinsic_fit=0.8,
+            strategy_collection_coverage=0.5,
+            build_readiness=70,
+            wildcard_cost_by_rarity={},
+            mana_readiness=70,
+            strategy_role_coverage=[],
+            commander_owned=True,
+            confidence=0.8,
+            key_owned=[],
+            key_missing=[],
+            strengths=[],
+            deficits=[],
+            deck_quality=70,
+            collection_readiness=50,
+            completion_cost_by_rarity={},
+            completion_cost_points=8,
+            commander_wildcard_required=False,
+            provisional=provisional,
+            ranking_reason="test",
+        )
+        return _BuiltCandidate(recommendation=rec, missing_cards=missing)
+
+    leverage = _compute_craft_leverage([
+        candidate("One", [
+            ("Shared Rare", "rare", 10),
+            ("Shared Rare", "rare", 10),
+            ("Other Rare", "rare", 20),
+            ("Shared Common", "common", 4),
+        ]),
+        candidate("Two", [
+            ("Shared Rare", "rare", 8),
+            ("Shared Common", "common", 3),
+            ("Ignored Special", "special", 100),
+        ]),
+        candidate("Provisional", [
+            ("Provisional Mythic", "mythic", 999),
+        ], provisional=True),
+    ])
+
+    assert leverage is not None
+    assert leverage.total_decks_analyzed == 2
+    assert [card.name for card in leverage.cards_by_rarity["rare"]] == [
+        "Shared Rare", "Other Rare",
+    ]
+    assert leverage.cards_by_rarity["rare"][0].deck_count == 2
+    assert leverage.cards_by_rarity["common"][0].deck_count == 2
+    assert "mythic" not in leverage.cards_by_rarity
+    assert all(
+        len(cards) <= 2 for cards in leverage.cards_by_rarity.values()
+    )
+
+
+def test_analysis_gate_rejects_when_no_waiting_capacity():
+    import pytest
+    from fastapi import HTTPException
+    from routers.analyze_v2 import _AnalysisGate
+
+    gate = _AnalysisGate(max_active=1, max_waiting=0)
+    gate.acquire(timeout_s=0.01)
+    try:
+        with pytest.raises(HTTPException) as exc:
+            gate.acquire(timeout_s=0.01)
+        assert exc.value.status_code == 503
+        assert exc.value.headers == {"Retry-After": "30"}
+        assert gate.snapshot()["active"] == 1
+    finally:
+        gate.release()
+    assert gate.snapshot()["active"] == 0

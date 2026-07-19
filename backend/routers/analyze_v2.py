@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import defaultdict
+import threading
+import time
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 import strategy_db
+from card_names import build_card_name_index, normalize_collection
 from db import get_db
 from routers.analyze import (
     ColorStrength,
@@ -26,16 +30,21 @@ from solver.model import DeckCard, WC_VALUES, build_variant
 from solver.roles import infer_roles
 from solver.strategy_profile import STRATEGY_ROLE_MAP, profile_from_strategy_rows
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("uvicorn.error")
 router = APIRouter(prefix="/analyze/v2", tags=["analyze-v2"])
 
 COVERAGE_CARD_LIMIT = 60
 FINALISTS_PER_LANE = 12
-RESULTS_PER_LANE = 6
+OWNED_RESULTS_LIMIT = 12
+UNOWNED_RESULTS_LIMIT = 6
 BUILD_TIME_LIMIT_S = 3.0
 MAX_WORKERS = 4
 QUALITY_FLOOR = 55.0
-RANKING_VERSION = "owned-best-unowned-nearest-v1"
+RANKING_VERSION = "owned-best-unowned-nearest-v3-card-aliases"
+
+MAX_ACTIVE_ANALYSES = 1
+MAX_WAITING_ANALYSES = 4
+QUEUE_TIMEOUT_S = 120.0
 
 FILTER_TO_MACRO: dict[str, str | None] = {
     "All": None,
@@ -131,6 +140,18 @@ class CommanderRecommendationV2(BaseModel):
     ranking_reason: str
 
 
+class CraftLeverageCard(BaseModel):
+    name: str
+    rarity: str
+    deck_count: int
+
+
+class CraftLeverage(BaseModel):
+    lands_by_rarity: dict[str, list[CraftLeverageCard]]
+    cards_by_rarity: dict[str, list[CraftLeverageCard]]
+    total_decks_analyzed: int
+
+
 class AnalysisResultV2(BaseModel):
     total_unique: int
     total_copies: int
@@ -143,10 +164,150 @@ class AnalysisResultV2(BaseModel):
     ranking_version: str
     unmatched_cards: list[str]
     analysis_warnings: list[str]
+    craft_leverage: CraftLeverage | None = None
     owned_recommendations: list[CommanderRecommendationV2]
     unowned_recommendations: list[CommanderRecommendationV2]
     # Compatibility field for existing clients during the V2 transition.
     recommendations: list[CommanderRecommendationV2]
+
+
+class _AnalysisGate:
+    def __init__(self, max_active: int, max_waiting: int) -> None:
+        self.max_active = max_active
+        self.max_waiting = max_waiting
+        self._active = 0
+        self._waiting = 0
+        self._condition = threading.Condition()
+
+    def acquire(self, timeout_s: float) -> float:
+        started = time.monotonic()
+        with self._condition:
+            if self._active >= self.max_active:
+                if self._waiting >= self.max_waiting:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Analysis queue is full. Please try again shortly.",
+                        headers={"Retry-After": "30"},
+                    )
+                self._waiting += 1
+                try:
+                    deadline = started + timeout_s
+                    while self._active >= self.max_active:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise HTTPException(
+                                status_code=503,
+                                detail="Analysis queue wait timed out. Please try again.",
+                                headers={"Retry-After": "30"},
+                            )
+                        self._condition.wait(remaining)
+                finally:
+                    self._waiting -= 1
+            self._active += 1
+        return time.monotonic() - started
+
+    def release(self) -> None:
+        with self._condition:
+            self._active = max(0, self._active - 1)
+            self._condition.notify_all()
+
+    def snapshot(self) -> dict[str, int | bool]:
+        with self._condition:
+            return {
+                "active": self._active,
+                "waiting": self._waiting,
+                "max_active": self.max_active,
+                "max_waiting": self.max_waiting,
+                "accepting": self._waiting < self.max_waiting,
+            }
+
+
+_analysis_gate = _AnalysisGate(MAX_ACTIVE_ANALYSES, MAX_WAITING_ANALYSES)
+
+
+def _analysis_slot():
+    wait_s = _analysis_gate.acquire(QUEUE_TIMEOUT_S)
+    acquired_at = time.monotonic()
+    log.info("analysis_slot_acquired wait_s=%.3f", wait_s)
+    try:
+        yield
+    finally:
+        duration_s = time.monotonic() - acquired_at
+        _analysis_gate.release()
+        log.info("analysis_slot_released duration_s=%.3f wait_s=%.3f", duration_s, wait_s)
+
+
+@router.get("/queue")
+def queue_status():
+    return _analysis_gate.snapshot()
+
+
+@dataclass
+class _BuiltCandidate:
+    recommendation: CommanderRecommendationV2
+    missing_cards: list[tuple[str, str, float] | tuple[str, str, float, bool]]
+
+
+def _compute_craft_leverage(
+    candidates: list[_BuiltCandidate],
+    top_per_rarity: int = 2,
+) -> CraftLeverage | None:
+    eligible = [
+        candidate for candidate in candidates
+        if candidate.recommendation.commander_owned
+        and not candidate.recommendation.provisional
+    ]
+    if not eligible:
+        return None
+
+    deck_counts: Counter[str] = Counter()
+    aggregate_scores: Counter[str] = Counter()
+    card_details: dict[str, tuple[str, bool]] = {}
+    valid_rarities = {"common", "uncommon", "rare", "mythic"}
+    for candidate in eligible:
+        seen: set[str] = set()
+        for missing_card in candidate.missing_cards:
+            name, rarity, score = missing_card[:3]
+            is_land = bool(missing_card[3]) if len(missing_card) == 4 else False
+            if rarity not in valid_rarities or name in seen:
+                continue
+            seen.add(name)
+            deck_counts[name] += 1
+            aggregate_scores[name] += score
+            card_details[name] = (rarity, is_land)
+
+    def ranked_group(want_land: bool) -> dict[str, list[CraftLeverageCard]]:
+        grouped: dict[str, list[CraftLeverageCard]] = {}
+        for rarity in ("mythic", "rare", "uncommon", "common"):
+            names = [
+                name for name, (card_rarity, is_land) in card_details.items()
+                if card_rarity == rarity and is_land == want_land
+            ]
+            names.sort(
+                key=lambda name: (
+                    -deck_counts[name], -aggregate_scores[name], name.casefold()
+                )
+            )
+            if names:
+                grouped[rarity] = [
+                    CraftLeverageCard(
+                        name=name,
+                        rarity=rarity,
+                        deck_count=deck_counts[name],
+                    )
+                    for name in names[:top_per_rarity]
+                ]
+        return grouped
+
+    lands_by_rarity = ranked_group(True)
+    cards_by_rarity = ranked_group(False)
+    if not lands_by_rarity and not cards_by_rarity:
+        return None
+    return CraftLeverage(
+        lands_by_rarity=lands_by_rarity,
+        cards_by_rarity=cards_by_rarity,
+        total_decks_analyzed=len(eligible),
+    )
 
 
 def _mana_readiness(cards: list[DeckCard], color_identity: list[str]) -> float:
@@ -278,26 +439,18 @@ def _deck_quality(
 
 def _normalize_collection(
     collection: list[OwnedCard],
-    cards_by_casefold: dict[str, dict],
+    card_name_index: dict[str, dict],
 ) -> tuple[set[str], list[str], int]:
-    owned: set[str] = set()
-    unmatched: set[str] = set()
-    total_copies = 0
-    for item in collection:
-        if item.count < 1:
-            continue
-        normalized = " ".join(item.name.split())
-        card = cards_by_casefold.get(normalized.casefold())
-        if card is None:
-            unmatched.add(normalized)
-            continue
-        owned.add(card["name"])
-        total_copies += item.count
-    return owned, sorted(unmatched), total_copies
+    return normalize_collection(collection, card_name_index)
 
 
-@router.post("", response_model=AnalysisResultV2)
+@router.post(
+    "",
+    response_model=AnalysisResultV2,
+    dependencies=[Depends(_analysis_slot)],
+)
 def analyze_v2(req: AnalyzeRequestV2):
+    analysis_started = time.monotonic()
     if req.strategy_filter not in FILTER_TO_MACRO:
         raise HTTPException(
             status_code=422,
@@ -310,9 +463,9 @@ def analyze_v2(req: AnalyzeRequestV2):
         all_rows = conn.execute("SELECT * FROM cards ORDER BY name").fetchall()
     all_cards = [dict(row) for row in all_rows]
     cards_by_name = {card["name"]: card for card in all_cards}
-    cards_by_casefold = {card["name"].casefold(): card for card in all_cards}
+    card_name_index = build_card_name_index(all_cards)
     owned_set, unmatched_cards, total_copies = _normalize_collection(
-        req.collection, cards_by_casefold
+        req.collection, card_name_index
     )
     roles_cache = {card["name"]: infer_roles(card) for card in all_cards}
     owned_cards = [card for card in all_cards if card["name"] in owned_set]
@@ -348,17 +501,26 @@ def analyze_v2(req: AnalyzeRequestV2):
                    cs.fit_score,
                    cs.confidence,
                    cs.status,
+                   c.arena_legal,
                    st.display_name AS strategy_name,
                    st.macro_plan
             FROM commander_strategies cs
             JOIN cards c ON c.oracle_id = cs.commander_oracle_id
             JOIN strategy_templates st ON st.id = cs.strategy_template_id
-            WHERE c.is_commander = 1 AND c.arena_legal = 1 {macro_clause}
+            WHERE c.is_commander = 1 {macro_clause}
             ORDER BY c.name, cs.fit_score DESC, cs.strategy_template_id
             """,
             params,
         ).fetchall()
-        pairs = [dict(row) for row in pair_rows]
+        # oracle_cards contains one representative printing per oracle ID. An
+        # Arena commander such as Yuriko may therefore be marked non-Arena when
+        # that representative is a paper printing. An imported owned name is
+        # direct evidence that Arena supports it, while unowned suggestions
+        # still respect the database flag.
+        pairs = [
+            dict(row) for row in pair_rows
+            if row["arena_legal"] or row["commander_name"] in owned_set
+        ]
 
         top_rows = s_conn.execute(
             f"""
@@ -500,7 +662,7 @@ def analyze_v2(req: AnalyzeRequestV2):
                     ).fetchall()
                 }
 
-    def build_candidate(pair: dict) -> CommanderRecommendationV2 | None:
+    def build_candidate(pair: dict) -> _BuiltCandidate | None:
         commander_name = pair["commander_name"]
         commander = cards_by_name.get(commander_name)
         if commander is None:
@@ -560,7 +722,7 @@ def analyze_v2(req: AnalyzeRequestV2):
                 f"{completion_points} wildcard points to complete a "
                 f"{quality:.0f}% quality deck"
             )
-        return CommanderRecommendationV2(
+        recommendation = CommanderRecommendationV2(
             name=commander_name,
             color_identity=colors,
             cmc=pair["commander_cmc"],
@@ -589,14 +751,24 @@ def analyze_v2(req: AnalyzeRequestV2):
             provisional=provisional,
             ranking_reason=reason,
         )
+        missing_cards = [
+            (dc.card["name"], dc.card["rarity"], dc.score, bool(dc.card["is_land"]))
+            for dc in result.cards
+            if not dc.owned
+            and dc.wildcard_cost in {"common", "uncommon", "rare", "mythic"}
+        ]
+        return _BuiltCandidate(
+            recommendation=recommendation,
+            missing_cards=missing_cards,
+        )
 
-    built: list[CommanderRecommendationV2] = []
+    built: list[_BuiltCandidate] = []
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {executor.submit(build_candidate, pair): pair for pair in finalists}
         for future in as_completed(futures):
             pair = futures[future]
             try:
-                recommendation = future.result()
+                candidate = future.result()
             except Exception as exc:
                 message = (
                     f"Could not evaluate {pair['commander_name']} / "
@@ -605,11 +777,13 @@ def analyze_v2(req: AnalyzeRequestV2):
                 log.exception(message)
                 warnings.append(message)
                 continue
-            if recommendation is not None:
-                built.append(recommendation)
+            if candidate is not None:
+                built.append(candidate)
 
-    owned_results = [rec for rec in built if rec.commander_owned]
-    unowned_results = [rec for rec in built if not rec.commander_owned]
+    craft_leverage = _compute_craft_leverage(built)
+    recommendations = [candidate.recommendation for candidate in built]
+    owned_results = [rec for rec in recommendations if rec.commander_owned]
+    unowned_results = [rec for rec in recommendations if not rec.commander_owned]
     owned_results.sort(
         key=lambda rec: (
             rec.provisional,
@@ -638,9 +812,17 @@ def analyze_v2(req: AnalyzeRequestV2):
             rec.name,
         )
     )
-    owned_results = owned_results[:RESULTS_PER_LANE]
-    unowned_results = (qualified + provisional)[:RESULTS_PER_LANE]
+    owned_results = owned_results[:OWNED_RESULTS_LIMIT]
+    unowned_results = (qualified + provisional)[:UNOWNED_RESULTS_LIMIT]
     combined = owned_results + unowned_results
+    log.info(
+        "analysis_complete filter=%s owned=%d unowned=%d warnings=%d duration_s=%.3f",
+        req.strategy_filter,
+        len(owned_results),
+        len(unowned_results),
+        len(warnings),
+        time.monotonic() - analysis_started,
+    )
 
     return AnalysisResultV2(
         total_unique=len(owned_set),
@@ -654,6 +836,7 @@ def analyze_v2(req: AnalyzeRequestV2):
         ranking_version=RANKING_VERSION,
         unmatched_cards=unmatched_cards,
         analysis_warnings=warnings,
+        craft_leverage=craft_leverage,
         owned_recommendations=owned_results,
         unowned_recommendations=unowned_results,
         recommendations=combined,

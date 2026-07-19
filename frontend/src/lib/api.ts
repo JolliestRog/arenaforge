@@ -1,5 +1,5 @@
 import type {
-  AnalysisResult, AnalysisResultV2, CardData, DeckCard, DeckVariant,
+  AnalysisQueueStatus, AnalysisResult, AnalysisResultV2, CardData, DeckCard, DeckVariant,
   ExcludedCard, OwnedCard, WildcardBudget,
 } from './types';
 
@@ -54,14 +54,19 @@ function adaptVariant(raw: any): DeckVariant {
   );
 
   const fc = raw.featured_cards ?? {};
+  const cards = (raw.cards ?? []).map(adaptDeckCard);
+  const legacyInfeasible = raw.infeasible ?? false;
+  const buildStatus = raw.build_status
+    ?? (legacyInfeasible ? (cards.length > 0 ? 'role_relaxed' : 'unavailable') : 'complete');
   return {
     variantKey: raw.variant_key,
     label: raw.label,
     description: raw.description,
     strategyName: raw.strategy_name ?? '',
     strategyId: raw.strategy_id ?? '',
+    macroPlan: raw.macro_plan ?? '',
     commander: adaptCard(raw.commander),
-    cards: (raw.cards ?? []).map(adaptDeckCard),
+    cards,
     roleCounts: raw.role_counts ?? {},
     manaCurve,
     wildcardCost: raw.wildcard_cost ?? { common: 0, uncommon: 0, rare: 0, mythic: 0 },
@@ -70,7 +75,9 @@ function adaptVariant(raw: any): DeckVariant {
     excludedHighScorers,
     arenaExport: raw.arena_export ?? '',
     score: raw.score ?? 0,
-    infeasible: raw.infeasible ?? false,
+    buildStatus,
+    unavailableReason: raw.unavailable_reason ?? null,
+    infeasible: buildStatus === 'unavailable',
     featuredCards: {
       engines: fc.engines ?? [],
       finishers: fc.finishers ?? [],
@@ -184,5 +191,11 @@ export async function analyzeCollectionV2(
     throw new ApiError(res.status, err.detail ?? 'Analysis V2 failed');
   }
 
+  return res.json();
+}
+
+export async function fetchAnalysisQueue(): Promise<AnalysisQueueStatus | null> {
+  const res = await fetch(`${API_BASE}/analyze/v2/queue`);
+  if (!res.ok) return null;
   return res.json();
 }

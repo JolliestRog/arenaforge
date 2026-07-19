@@ -108,8 +108,9 @@ export default function DeckView({ variant, onBack, onViewGuide }: Props) {
 
       <div className="deck-header">
         <div>
-          <p className="deck-slug">{variant.commander.name} — {variant.strategyName} — {variant.label}</p>
-          <p className="deck-commander">Commander: <strong>{variant.commander.name}</strong></p>
+          <p className="deck-slug">
+            {variant.commander.name.split(/[,\s]/)[0]} - {variant.macroPlan ? variant.macroPlan.charAt(0).toUpperCase() + variant.macroPlan.slice(1) : variant.strategyName} - {variant.label}
+          </p>
         </div>
         <div className="deck-quick-stats">
           <span>{variant.cards.length + 1} cards</span>

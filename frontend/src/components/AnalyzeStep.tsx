@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
+  AnalysisQueueStatus,
   AnalysisResultV2,
   CommanderRecommendationV2,
+  CraftLeverage,
   OwnedCard,
   RoleCoverageItem,
 } from '../lib/types';
-import { analyzeCollectionV2 } from '../lib/api';
+import { analyzeCollectionV2, fetchAnalysisQueue } from '../lib/api';
 
 interface Props {
   collection: OwnedCard[];
@@ -21,6 +23,40 @@ const COLOR_SYMBOL: Record<string, string> = { W: 'W', U: 'U', B: 'B', R: 'R', G
 const COLOR_NAMES:  Record<string, string> = {
   W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green',
 };
+const COLOR_ORDER = 'WUBRG';
+const GUILD_GREETINGS: Record<string, string> = {
+  UB: "Ah, a Dimir summoner. Here's what shadows and secrets can build.",
+  WU: 'An Azorius architect steps forward. Order will prevail.',
+  BR: 'A Rakdos devotee arrives. Let chaos reign.',
+  RG: 'A Gruul warrior claims the forge. Strength above all.',
+  WG: 'A Selesnya cultivator. Your collection grows strong.',
+  WB: 'An Orzhov magnate surveys their assets.',
+  UR: 'An Izzet theorist approaches the board.',
+  BG: 'A Golgari harvester. Life from death.',
+  WR: 'A Boros commander reports for battle.',
+  UG: 'A Simic researcher scans the possibilities.',
+};
+
+function getThematicGreeting(result: AnalysisResultV2 | null): string {
+  if (!result) return 'What can your collection build?';
+  const strengthByColor = new Map(
+    result.color_strength.map(strength => [
+      strength.color,
+      strength.owned + strength.rares * 2 + strength.mythics * 3,
+    ]),
+  );
+  const strongestPositive = result.strongest_colors.filter(
+    color => (strengthByColor.get(color) ?? 0) > 0,
+  );
+  if (strongestPositive.length < 2) {
+    return "Welcome, summoner. Here's what your collection can build.";
+  }
+  const pair = strongestPositive.slice(0, 2)
+    .sort((a, b) => COLOR_ORDER.indexOf(a) - COLOR_ORDER.indexOf(b))
+    .join('');
+  return GUILD_GREETINGS[pair]
+    ?? "Welcome, summoner. Here's what your collection can build.";
+}
 
 function ColorPips({ colors }: { colors: string[] }) {
   return (
@@ -39,6 +75,7 @@ function ColorStrengthSection({ strengths }: { strengths: AnalysisResultV2['colo
   return (
     <div className="analysis-section">
       <h3 className="analysis-section-title">Color Strength</h3>
+      <p className="color-bar-legend">R = rares · M = mythics</p>
       <div className="color-bars">
         {strengths.map(s => (
           <div key={s.color} className="color-bar-row">
@@ -151,9 +188,16 @@ function WildcardRow({ wc }: { wc: CommanderRecommendationV2['wildcard_cost_by_r
 
 function RoleCoverageSection({ items }: { items: RoleCoverageItem[] }) {
   if (items.length === 0) return null;
+  const unmet = items.filter(item => !item.meets_minimum);
+  const partial = items.filter(item => item.meets_minimum && !item.meets_preferred);
+  const met = items.filter(item => item.meets_preferred);
+  const ordered = [...unmet, ...partial, ...met];
   return (
     <div className="role-coverage">
-      {items.map(item => (
+      <p className="role-coverage-summary">
+        {unmet.length} unmet · {partial.length} partially met
+      </p>
+      {ordered.map(item => (
         <div
           key={item.role}
           className={`role-item ${item.meets_preferred ? 'role-item--met' : item.meets_minimum ? 'role-item--partial' : 'role-item--unmet'}`}
@@ -187,6 +231,75 @@ function ReadinessGauge({ label, value }: { label: string; value: number }) {
 
 const RARITY_ORDER = ['mythic', 'rare', 'uncommon', 'common'] as const;
 const RARITY_LABEL: Record<string, string> = { mythic: 'M', rare: 'R', uncommon: 'U', common: 'C' };
+
+function CraftLeverageRows({
+  cardsByRarity,
+  total,
+}: {
+  cardsByRarity: CraftLeverage['cards_by_rarity'];
+  total: number;
+}) {
+  return RARITY_ORDER.filter(rarity => cardsByRarity[rarity]?.length).map(rarity => (
+    <div key={rarity} className="craft-oracle-rarity-row">
+      <span className={`cmdr-rarity-badge cmdr-rarity-badge--${rarity}`}>
+        {RARITY_LABEL[rarity]}
+      </span>
+      <div className="craft-oracle-cards">
+        {cardsByRarity[rarity]!.map(card => (
+          <div key={card.name} className="craft-oracle-item">
+            <span className={`cmdr-key-card cmdr-key-card--${rarity}`}>{card.name}</span>
+            <span className="craft-oracle-decks">
+              {card.deck_count} of {total} deck{total === 1 ? '' : 's'}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  ));
+}
+
+function CraftOracleCard({
+  leverage,
+  strategyFilter,
+}: {
+  leverage: CraftLeverage;
+  strategyFilter: string;
+}) {
+  const total = leverage.total_decks_analyzed;
+  const scope = strategyFilter === 'All' ? 'recommended decks' : `${strategyFilter} decks`;
+  const landsByRarity = leverage.lands_by_rarity ?? {};
+  const hasLands = RARITY_ORDER.some(rarity => landsByRarity[rarity]?.length);
+  const hasSpells = RARITY_ORDER.some(rarity => leverage.cards_by_rarity[rarity]?.length);
+  return (
+    <div className="cmdr-card craft-oracle-card">
+      <div className="craft-oracle-header">
+        <span className="craft-oracle-title">Craft Leverage</span>
+        <span className="craft-oracle-subtitle">
+          Missing cards that strengthen the most {scope}
+        </span>
+      </div>
+      <div className="craft-oracle-body">
+        {hasLands && (
+          <section className="craft-oracle-section craft-oracle-section--lands">
+            <div className="craft-oracle-section-title">
+              Lands <span>Reusable mana-base upgrades</span>
+            </div>
+            <CraftLeverageRows cardsByRarity={landsByRarity} total={total} />
+          </section>
+        )}
+        {hasSpells && (
+          <section className="craft-oracle-section">
+            <div className="craft-oracle-section-title">Spells</div>
+            <CraftLeverageRows cardsByRarity={leverage.cards_by_rarity} total={total} />
+          </section>
+        )}
+      </div>
+      <p className="craft-oracle-footer">
+        Based on {total} eligible owned-commander deck{total === 1 ? '' : 's'}
+      </p>
+    </div>
+  );
+}
 
 function KeyMissingByRarity({ missing }: { missing: { name: string; rarity: string }[] }) {
   if (missing.length === 0) return null;
@@ -323,17 +436,43 @@ export default function AnalyzeStep({
   const [loading, setLoading]         = useState(preloaded == null);
   const [error, setError]             = useState<string | null>(null);
   const [showAllOwned, setShowAllOwned]     = useState(false);
-  const [showAllUnowned, setShowAllUnowned] = useState(false);
+  const [showUnmatched, setShowUnmatched]   = useState(false);
+  const [queueStatus, setQueueStatus]       = useState<AnalysisQueueStatus | null>(null);
+  const queueTimerRef = useRef<number | null>(null);
+
+  function stopQueuePolling() {
+    if (queueTimerRef.current !== null) {
+      window.clearInterval(queueTimerRef.current);
+      queueTimerRef.current = null;
+    }
+  }
+
+  function startQueuePolling() {
+    stopQueuePolling();
+    const poll = () => {
+      fetchAnalysisQueue()
+        .then(status => {
+          if (status) setQueueStatus(status);
+        })
+        .catch(() => { /* Queue feedback is optional. */ });
+    };
+    poll();
+    queueTimerRef.current = window.setInterval(poll, 5000);
+  }
 
   const fetchFilter = (filter: string) => {
     const cached = cacheRef.current.get(filter);
     if (cached) {
+      stopQueuePolling();
+      setQueueStatus(null);
       setResult(cached);
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
+    setQueueStatus(null);
+    startQueuePolling();
     analyzeCollectionV2(collection, filter)
       .then(r => {
         cacheRef.current.set(filter, r);
@@ -341,7 +480,11 @@ export default function AnalyzeStep({
         onResult(r);
       })
       .catch(e => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        stopQueuePolling();
+        setQueueStatus(null);
+        setLoading(false);
+      });
   };
 
   // Initial load — skip if already in cache.
@@ -351,23 +494,31 @@ export default function AnalyzeStep({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => () => stopQueuePolling(), []);
+
   function handleFilterChange(filter: string) {
     if (filter === filterMacro && result !== null) return;
     setFilterMacro(filter);
     setShowAllOwned(false);
-    setShowAllUnowned(false);
+    setShowUnmatched(false);
     fetchFilter(filter);
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const strongestLabels = result?.strongest_colors.map(c => COLOR_NAMES[c]).join(', ') ?? '';
+  const strongestLabels = result?.strongest_colors
+    .filter(color => {
+      const strength = result.color_strength.find(item => item.color === color);
+      return (strength?.owned ?? 0) > 0;
+    })
+    .map(c => COLOR_NAMES[c])
+    .join(', ') ?? '';
 
   return (
     <div className="analyze-step">
       {/* Hero */}
       <div className="analyze-hero">
-        <h2>What can your collection build?</h2>
+        <h2>{getThematicGreeting(result)}</h2>
         {result && (
           <>
             <p className="analyze-summary">{result.summary}</p>
@@ -379,11 +530,28 @@ export default function AnalyzeStep({
               )}
             </div>
             {result.unmatched_cards.length > 0 && (
-              <p className="analyze-import-warning">
-                {result.unmatched_cards.length} imported card
-                {result.unmatched_cards.length === 1 ? '' : 's'} could not be matched and
-                were excluded from ranking.
-              </p>
+              <div className="analyze-import-warning">
+                <div className="unmatched-warning-row">
+                  <span>
+                    {result.unmatched_cards.length} imported card
+                    {result.unmatched_cards.length === 1 ? '' : 's'} could not be matched and
+                    were excluded from ranking.
+                  </span>
+                  <button
+                    className="unmatched-toggle"
+                    onClick={() => setShowUnmatched(show => !show)}
+                    aria-expanded={showUnmatched}
+                    aria-controls="unmatched-card-list"
+                  >
+                    {showUnmatched ? 'Hide list ▲' : 'Show list ▼'}
+                  </button>
+                </div>
+                {showUnmatched && (
+                  <ul id="unmatched-card-list" className="unmatched-card-list">
+                    {result.unmatched_cards.map(name => <li key={name}>{name}</li>)}
+                  </ul>
+                )}
+              </div>
             )}
           </>
         )}
@@ -401,9 +569,8 @@ export default function AnalyzeStep({
       {/* Recommendations */}
       <div className="analyze-recs">
         <div className="analyze-recs-header">
-          <h3 className="analyze-recs-title">Commander Recommendations</h3>
-
           {/* Strategy filter — server-side, triggers new fetch */}
+          <span className="core-strategies-label">Core Strategies</span>
           <div className="strategy-filter">
             {STRATEGY_FILTERS.map(f => (
               <button
@@ -421,10 +588,18 @@ export default function AnalyzeStep({
         {loading && (
           <div className="analyze-loading">
             <div className="analyze-spinner" />
-            <p>
-              Scoring {filterMacro === 'All' ? 'all' : filterMacro} commanders and
-              building decks from your collection…
-            </p>
+            {queueStatus && queueStatus.waiting > 0 ? (
+              <p>
+                High demand — {queueStatus.active} analysis
+                {queueStatus.active === 1 ? '' : 'es'} running and {queueStatus.waiting} waiting.
+                Your request remains queued.
+              </p>
+            ) : (
+              <p>
+                Scoring {filterMacro === 'All' ? 'all' : filterMacro} commanders and
+                building decks from your collection…
+              </p>
+            )}
             <p className="analyze-loading-sub">
               This may take 20–30 seconds on first load.
             </p>
@@ -446,18 +621,20 @@ export default function AnalyzeStep({
           const unowned = result.unowned_recommendations
             ?? result.recommendations.filter(r => !r.commander_owned);
           const recs = [...owned, ...unowned];
-          const visOwned   = showAllOwned   ? owned   : owned.slice(0, CARDS_PER_SECTION);
-          const visUnowned = showAllUnowned ? unowned : unowned.slice(0, CARDS_PER_SECTION);
+          const leverage = result.craft_leverage ?? null;
+          const initialOwnedCount = leverage ? CARDS_PER_SECTION - 1 : CARDS_PER_SECTION;
+          const visOwned = showAllOwned ? owned : owned.slice(0, initialOwnedCount);
+          const visUnowned = unowned.slice(0, CARDS_PER_SECTION);
 
           return (
             <>
               {owned.length > 0 && (
                 <>
                   <h4 className="analyze-recs-subtitle">Best decks for commanders you own</h4>
-                  <p className="analyze-recs-sub">
-                    Strongest optimized decks first, with collection readiness as the tie-breaker.
-                  </p>
                   <div className="cmdr-card-grid">
+                    {leverage && (
+                      <CraftOracleCard leverage={leverage} strategyFilter={filterMacro} />
+                    )}
                     {visOwned.map(rec => (
                       <CommanderCardV2
                         key={`${rec.name}::${rec.strategy_id}`}
@@ -466,12 +643,12 @@ export default function AnalyzeStep({
                       />
                     ))}
                   </div>
-                  {owned.length > CARDS_PER_SECTION && !showAllOwned && (
+                  {owned.length > initialOwnedCount && !showAllOwned && (
                     <button
                       className="btn-ghost show-more-btn"
                       onClick={() => setShowAllOwned(true)}
                     >
-                      Show {owned.length - CARDS_PER_SECTION} more owned commanders
+                      Show {owned.length - initialOwnedCount} more owned commanders
                     </button>
                   )}
                 </>
@@ -480,9 +657,6 @@ export default function AnalyzeStep({
               {unowned.length > 0 && (
                 <>
                   <h4 className="analyze-recs-subtitle">Closest strong decks with a commander to craft</h4>
-                  <p className="analyze-recs-sub">
-                    Quality-qualified decks ranked by the weighted wildcard cost to complete them.
-                  </p>
                   <div className="cmdr-card-grid">
                     {visUnowned.map(rec => (
                       <CommanderCardV2
@@ -492,14 +666,6 @@ export default function AnalyzeStep({
                       />
                     ))}
                   </div>
-                  {unowned.length > CARDS_PER_SECTION && !showAllUnowned && (
-                    <button
-                      className="btn-ghost show-more-btn"
-                      onClick={() => setShowAllUnowned(true)}
-                    >
-                      Show {unowned.length - CARDS_PER_SECTION} more commanders to build toward
-                    </button>
-                  )}
                 </>
               )}
 

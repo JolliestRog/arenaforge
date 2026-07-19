@@ -509,6 +509,7 @@ button { cursor: pointer; border: none; font: inherit; }
 .cbs-owned { color: var(--text); }
 .cbs-rare  { color: #d4a847; }
 .cbs-mythic { color: #d4601a; }
+.color-bar-legend { font-size: 0.75rem; color: var(--text-dim); margin: -4px 0 8px; }
 
 /* color pip labels on labels */
 .pip-W-text { color: #c8c4a0; }
@@ -538,12 +539,16 @@ button { cursor: pointer; border: none; font: inherit; }
 
 /* commander rec section */
 .analyze-recs { display: flex; flex-direction: column; gap: 16px; }
-.analyze-recs-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.analyze-recs-header { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .analyze-recs-title { font-size: 1.2rem; color: var(--gold); }
 .analyze-recs-subtitle { font-size: 1rem; color: var(--accent2); margin: 32px 0 4px; }
 .analyze-recs-sub { font-size: 0.85rem; color: var(--text-dim); margin-bottom: 16px; }
+.core-strategies-label {
+  color: var(--gold); font-size: 0.78rem; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase;
+}
 
-.strategy-filter { display: flex; flex-wrap: wrap; gap: 6px; }
+.strategy-filter { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .strategy-chip {
   display: flex; align-items: center; gap: 5px;
   background: var(--bg3); border: 1px solid var(--border);
@@ -569,6 +574,38 @@ button { cursor: pointer; border: none; font: inherit; }
 }
 .cmdr-card:hover { border-color: var(--accent); }
 .cmdr-card--owned { border-left: 3px solid var(--gold); }
+
+.craft-oracle-card {
+  border-color: rgba(212, 168, 71, .65);
+  background:
+    radial-gradient(circle at top right, rgba(92, 138, 255, .14), transparent 55%),
+    var(--bg2);
+}
+.craft-oracle-card:hover { border-color: var(--gold); }
+.craft-oracle-header { display: flex; flex-direction: column; gap: 4px; }
+.craft-oracle-title { color: var(--gold); font-size: 1rem; font-weight: 700; }
+.craft-oracle-subtitle,
+.craft-oracle-footer { color: var(--text-dim); font-size: .76rem; line-height: 1.45; }
+.craft-oracle-body { display: flex; flex-direction: column; gap: 12px; }
+.craft-oracle-section { display: flex; flex-direction: column; gap: 7px; }
+.craft-oracle-section--lands {
+  padding-bottom: 10px; border-bottom: 1px solid rgba(212, 168, 71, .22);
+}
+.craft-oracle-section-title {
+  color: var(--text); font-size: .78rem; font-weight: 700;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+}
+.craft-oracle-section-title span {
+  color: var(--gold); font-size: .66rem; font-weight: 500;
+}
+.craft-oracle-rarity-row { display: flex; align-items: flex-start; gap: 8px; }
+.craft-oracle-cards { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+.craft-oracle-item {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 8px; min-width: 0;
+}
+.craft-oracle-decks { color: var(--accent2); font-size: .7rem; white-space: nowrap; }
+.craft-oracle-footer { margin-top: auto; }
 
 .cmdr-card-header { display: flex; flex-direction: column; gap: 6px; }
 .cmdr-card-name-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -629,6 +666,10 @@ button { cursor: pointer; border: none; font: inherit; }
 }
 .cmdr-key-card--owned   { border-color: rgba(92,138,255,.4); color: var(--accent); background: rgba(92,138,255,.08); }
 .cmdr-key-card--missing { border-color: rgba(200,150,0,.3); color: #c89a30; background: rgba(200,150,0,.06); }
+.cmdr-key-card--rare    { border-color: rgba(200,150,0,.3); color: #e8b84b; background: rgba(200,150,0,.08); }
+.cmdr-key-card--mythic  { border-color: rgba(220,100,30,.3); color: #e07030; background: rgba(220,100,30,.08); }
+.cmdr-key-card--uncommon { border-color: rgba(120,160,220,.25); color: #8aabe0; background: rgba(120,160,220,.07); }
+.cmdr-key-card--common  { border-color: rgba(160,160,160,.2); color: #aaa; background: rgba(160,160,160,.06); }
 
 .cmdr-key-rarity {
   font-size: 0.6rem; font-weight: 700; line-height: 1;
@@ -784,6 +825,7 @@ button { cursor: pointer; border: none; font: inherit; }
 .cmdr-role-coverage-section { margin: 6px 0; }
 .cmdr-expand-btn  { font-size: 0.72rem; padding: 3px 0; color: var(--text-dim); }
 .role-coverage    { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.role-coverage-summary { color: var(--text-dim); font-size: .7rem; margin-bottom: 3px; }
 .role-item        { display: flex; justify-content: space-between; align-items: center;
                     font-size: 0.72rem; padding: 2px 6px; border-radius: 4px; }
 .role-item--met      { background: rgba(61,204,136,0.08); color: var(--green); }
@@ -816,6 +858,14 @@ button { cursor: pointer; border: none; font: inherit; }
 .variant-card--free .variant-header h3 { color: var(--green); }
 .variant-card--infeasible { opacity: .6; }
 .free-badge { display: inline-block; margin-left: 8px; padding: 2px 6px; background: rgba(51,221,136,.12); color: var(--green); border-radius: 4px; font-size: 0.65rem; font-weight: 800; letter-spacing: .06em; }
+.relaxed-badge {
+  display: inline-block; margin-left: 8px; padding: 2px 6px;
+  background: rgba(255,200,80,.12); border: 1px solid rgba(255,200,80,.35);
+  color: var(--gold); border-radius: 4px; font-size: .65rem;
+  font-weight: 800; letter-spacing: .04em; text-transform: uppercase;
+}
+.variant-status-note { color: var(--gold); font-size: .75rem; line-height: 1.4; margin-top: 6px; }
+.variant-card--infeasible .variant-status-note { color: #c87800; }
 .btn-free { background: rgba(51,221,136,.15); border: 1px solid rgba(51,221,136,.4); color: var(--green); }
 .btn-free:hover { background: rgba(51,221,136,.25); }
 
@@ -899,13 +949,32 @@ button { cursor: pointer; border: none; font: inherit; }
 }
 
 .cmdr-cost-points {
-  color: var(--text-muted);
+  color: var(--text-dim);
   font-size: 0.78rem;
 }
 
 .cmdr-ranking-reason,
 .analyze-import-warning {
-  color: var(--text-muted);
+  color: var(--text-dim);
   font-size: 0.84rem;
   line-height: 1.4;
 }
+
+.analyze-import-warning {
+  margin-top: 10px; padding: 9px 12px;
+  border: 1px solid rgba(200, 120, 0, .3); border-radius: var(--radius);
+  background: rgba(200, 120, 0, .08);
+}
+.unmatched-warning-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+}
+.unmatched-toggle {
+  background: transparent; color: var(--accent2); padding: 2px 0;
+  font-size: .76rem; text-decoration: underline;
+}
+.unmatched-card-list {
+  max-height: 180px; overflow-y: auto; margin: 9px 0 0 20px;
+  padding-right: 8px; color: var(--text-dim); font-size: .76rem;
+}
+.unmatched-card-list li { margin: 3px 0; }
