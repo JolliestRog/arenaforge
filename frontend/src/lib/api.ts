@@ -66,6 +66,8 @@ function adaptVariant(raw: any): DeckVariant {
     strategyId: raw.strategy_id ?? '',
     macroPlan: raw.macro_plan ?? '',
     commander: adaptCard(raw.commander),
+    commanderOwned: raw.commander_owned ?? true,
+    commanderWildcardCost: raw.commander_wildcard_cost ?? null,
     cards,
     roleCounts: raw.role_counts ?? {},
     manaCurve,

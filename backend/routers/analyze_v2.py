@@ -29,6 +29,11 @@ from routers.analyze import (
 from solver.model import DeckCard, WC_VALUES, build_variant
 from solver.roles import infer_roles
 from solver.strategy_profile import STRATEGY_ROLE_MAP, profile_from_strategy_rows
+from wildcard_costs import (
+    completion_wildcard_cost,
+    deck_wildcard_cost,
+    wildcard_points,
+)
 
 log = logging.getLogger("uvicorn.error")
 router = APIRouter(prefix="/analyze/v2", tags=["analyze-v2"])
@@ -326,12 +331,7 @@ def _mana_readiness(cards: list[DeckCard], color_identity: list[str]) -> float:
 
 
 def _wildcard_cost(cards: list[DeckCard]) -> WildcardCostByRarity:
-    values = WildcardCostByRarity()
-    for dc in cards:
-        rarity = dc.wildcard_cost
-        if rarity in {"common", "uncommon", "rare", "mythic"}:
-            setattr(values, rarity, getattr(values, rarity) + 1)
-    return values
+    return WildcardCostByRarity(**deck_wildcard_cost(cards))
 
 
 def _completion_cost(
@@ -339,15 +339,8 @@ def _completion_cost(
     commander: dict,
     commander_owned: bool,
 ) -> tuple[WildcardCostByRarity, int]:
-    values = _wildcard_cost(cards)
-    if not commander_owned and commander["rarity"] in {"common", "uncommon", "rare", "mythic"}:
-        rarity = commander["rarity"]
-        setattr(values, rarity, getattr(values, rarity) + 1)
-    points = sum(
-        getattr(values, rarity) * WC_VALUES[rarity]
-        for rarity in ("common", "uncommon", "rare", "mythic")
-    )
-    return values, points
+    raw_costs = completion_wildcard_cost(cards, commander, commander_owned)
+    return WildcardCostByRarity(**raw_costs), wildcard_points(raw_costs)
 
 
 def _build_readiness(

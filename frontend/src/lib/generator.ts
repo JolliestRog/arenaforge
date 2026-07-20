@@ -7,6 +7,9 @@ import { DIMIR_POOL } from '../data/dimir-pool';
 import { PROFILES } from './profiles';
 
 const DECK_SIZE = 100;
+const FREE_BASIC_LANDS = new Set([
+  'Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes',
+]);
 
 function buildOwnedMap(collection: OwnedCard[]): Map<string, number> {
   const m = new Map<string, number>();
@@ -15,7 +18,11 @@ function buildOwnedMap(collection: OwnedCard[]): Map<string, number> {
 }
 
 function wildcardCostFor(card: CardData): 'common' | 'uncommon' | 'rare' | 'mythic' | null {
-  if (card.isLand && card.rarity === 'common') return null; // basic lands free
+  if (
+    card.isLand
+    && FREE_BASIC_LANDS.has(card.name)
+    && card.typeLine.includes('Basic Land')
+  ) return null;
   return card.rarity;
 }
 
@@ -327,6 +334,10 @@ export function generateDeck(request: BuildRequest): DeckVariant[] {
   if (!commanderCard) throw new Error(`Unknown commander: ${request.commander}`);
 
   const ownedMap = buildOwnedMap(request.collection);
+  const commanderOwned = (ownedMap.get(commanderCard.name.toLowerCase()) ?? 0) >= 1;
+  const commanderWildcardCost = commanderOwned
+    ? null
+    : wildcardCostFor(commanderCard);
   const infiniteBudget: WildcardBudget = { common: Infinity, uncommon: Infinity, rare: Infinity, mythic: Infinity };
 
   const variantDefs: Array<{ key: 'performance' | 'wildcard' | 'consistency'; label: string; description: string; budget: WildcardBudget }> = [
@@ -351,9 +362,24 @@ export function generateDeck(request: BuildRequest): DeckVariant[] {
   ];
 
   return variantDefs.map(vd => {
-    const { cards, excluded } = buildDeckVariant(
-      commanderCard, DIMIR_POOL, ownedMap, profile, vd.budget, vd.key,
-    );
+    const deckBudget = { ...vd.budget };
+    const commanderAffordable = commanderWildcardCost === null
+      || deckBudget[commanderWildcardCost] === Infinity
+      || deckBudget[commanderWildcardCost] > 0;
+    if (
+      commanderWildcardCost
+      && deckBudget[commanderWildcardCost] !== Infinity
+      && deckBudget[commanderWildcardCost] > 0
+    ) {
+      deckBudget[commanderWildcardCost]--;
+    }
+    const { cards, excluded } = commanderAffordable
+      ? buildDeckVariant(
+        commanderCard, DIMIR_POOL, ownedMap, profile, deckBudget, vd.key,
+      )
+      : { cards: [], excluded: [] };
+    const totalWildcardCost = wildcardCosts(cards);
+    if (commanderWildcardCost) totalWildcardCost[commanderWildcardCost]++;
 
     return {
       variantKey: vd.key,
@@ -363,18 +389,20 @@ export function generateDeck(request: BuildRequest): DeckVariant[] {
       strategyId: request.profile,
       macroPlan: '',
       commander: commanderCard,
+      commanderOwned,
+      commanderWildcardCost,
       cards,
       roleCounts: roleCounts(cards),
       manaCurve: manaCurve(cards),
-      wildcardCost: wildcardCosts(cards),
+      wildcardCost: totalWildcardCost,
       functionalHandEstimate: estimateFunctionalHand(cards, request.profile),
       weakestCards: findWeakest(cards),
       excludedHighScorers: excluded,
       arenaExport: arenaExport(commanderCard, cards),
       score: cards.reduce((sum, c) => sum + c.score, 0),
-      buildStatus: 'complete' as const,
-      unavailableReason: null,
-      infeasible: false,
+      buildStatus: commanderAffordable ? 'complete' as const : 'unavailable' as const,
+      unavailableReason: commanderAffordable ? null : 'card_pool_or_budget' as const,
+      infeasible: !commanderAffordable,
       featuredCards: { engines: [], finishers: [], setup: [], interaction: [], protection: [], ramp: [] },
     };
   });

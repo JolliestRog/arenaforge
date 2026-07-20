@@ -86,6 +86,8 @@ export interface DeckVariant {
   strategyId: string;
   macroPlan: string;
   commander: CardData;
+  commanderOwned: boolean;
+  commanderWildcardCost: Rarity | null;
   cards: DeckCard[];
   roleCounts: Record<string, number>;
   manaCurve: Record<number, number>;

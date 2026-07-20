@@ -14,6 +14,11 @@ from solver.model import (
 from solver.profiles import PROFILES
 from solver.roles import infer_roles
 from solver.strategy_profile import profile_from_strategy_rows
+from wildcard_costs import (
+    commander_wildcard_rarity,
+    completion_wildcard_cost,
+    reserve_commander_wildcard,
+)
 
 router = APIRouter(prefix="/build", tags=["build"])
 
@@ -82,6 +87,8 @@ class DeckVariantResponse(BaseModel):
     strategy_id: str
     macro_plan: str = ""
     commander: CardResponse
+    commander_owned: bool
+    commander_wildcard_cost: Literal["common", "uncommon", "rare", "mythic"] | None
     cards: list[DeckCardResponse]
     role_counts: dict[str, int]
     mana_curve: dict[str, int]
@@ -163,12 +170,12 @@ def _mana_curve(cards: list[DeckCard]) -> dict[str, int]:
     return curve
 
 
-def _wildcard_costs(cards: list[DeckCard]) -> dict[str, int]:
-    costs = {"common": 0, "uncommon": 0, "rare": 0, "mythic": 0}
-    for dc in cards:
-        if dc.wildcard_cost:
-            costs[dc.wildcard_cost] = costs.get(dc.wildcard_cost, 0) + 1
-    return costs
+def _wildcard_costs(
+    cards: list[DeckCard],
+    commander: dict,
+    commander_owned: bool,
+) -> dict[str, int]:
+    return completion_wildcard_cost(cards, commander, commander_owned)
 
 
 def _weakest_cards(cards: list[DeckCard]) -> list[str]:
@@ -186,6 +193,7 @@ def _build_variant_response(
     all_candidates: list[dict],
     owned_set: set[str],
     profile,
+    commander_owned: bool,
     solver_variant: str = "performance",
     strategy_weights: dict[str, float] | None = None,
     macro_plan: str = "",
@@ -210,6 +218,10 @@ def _build_variant_response(
         strategy_id=strategy_id,
         macro_plan=macro_plan,
         commander=_card_response(result.commander),
+        commander_owned=commander_owned,
+        commander_wildcard_cost=commander_wildcard_rarity(
+            result.commander, commander_owned
+        ),
         cards=[
             DeckCardResponse(
                 card=_card_response(dc.card),
@@ -223,7 +235,9 @@ def _build_variant_response(
         ],
         role_counts=_role_counts(result.cards),
         mana_curve=_mana_curve(result.cards),
-        wildcard_cost=_wildcard_costs(result.cards),
+        wildcard_cost=_wildcard_costs(
+            result.cards, result.commander, commander_owned
+        ),
         functional_hand_estimate=estimate_functional_hand(result.cards, profile),
         weakest_cards=_weakest_cards(result.cards),
         excluded_high_scorers=excluded[:5],
@@ -299,37 +313,48 @@ def build(req: BuildRequest):
     # Fetch candidate pool (color identity subset of commander's)
     with get_db() as conn:
         all_rows = conn.execute("SELECT * FROM cards ORDER BY name").fetchall()
+    all_cards = [dict(row) for row in all_rows]
 
     ci_set = set(ci)
     candidates = [
-        dict(r) for r in all_rows
-        if set(json.loads(r["color_identity"])).issubset(ci_set)
+        card for card in all_cards
+        if set(json.loads(card["color_identity"])).issubset(ci_set)
     ]
 
     owned_set, _, _ = normalize_collection(
-        req.collection, build_card_name_index(candidates)
+        req.collection, build_card_name_index(all_cards)
     )
+    commander_owned = commander["name"] in owned_set
     wc = req.wildcard_budget.model_dump()
 
     variants = []
     for vk, label, description, budget_preset, solver_vk in VARIANT_PRESETS:
-        build_budget = budget_preset if budget_preset is not None else wc
-
-        result = build_variant(
-            commander=commander,
-            candidates=candidates,
-            owned_set=owned_set,
-            profile=profile,
-            wildcard_budget=build_budget,
-            variant=solver_vk,
-            time_limit_s=5.0,
-            strategy_weights=strategy_weights,
+        requested_budget = budget_preset if budget_preset is not None else wc
+        build_budget = reserve_commander_wildcard(
+            requested_budget, commander, commander_owned
         )
+        if build_budget is None:
+            result = BuildResult(
+                cards=[], commander=commander, score=0,
+                status="unavailable", unavailable_reason="card_pool_or_budget",
+            )
+        else:
+            result = build_variant(
+                commander=commander,
+                candidates=candidates,
+                owned_set=owned_set,
+                profile=profile,
+                wildcard_budget=build_budget,
+                variant=solver_vk,
+                time_limit_s=5.0,
+                strategy_weights=strategy_weights,
+            )
 
         variants.append(
             _build_variant_response(
                 result, vk, label, description, strategy_name, req.profile,
                 candidates, owned_set, profile,
+                commander_owned=commander_owned,
                 solver_variant=solver_vk,
                 strategy_weights=strategy_weights,
                 macro_plan=macro_plan,
