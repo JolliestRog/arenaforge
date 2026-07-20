@@ -123,3 +123,83 @@ def test_collection_to_analysis_build_and_100_card_export(deterministic_database
     deck_count = sum(int(line.split(" ", 1)[0]) for line in lines[deck_index + 1:])
     assert deck_count == 99
     assert deck_count + 1 == 100
+
+
+def test_commander_cost_matches_analysis_and_controls_free_build(
+    deterministic_databases,
+):
+    from routers.analyze_v2 import AnalyzeRequestV2, analyze_v2
+    from routers.build import BuildRequest, WildcardBudget, build
+
+    collection = [
+        {"name": card["name"], "count": 1}
+        for card in fixture_cards()
+        if not card["type_line"].startswith("Legendary Creature")
+    ]
+    analysis = analyze_v2(AnalyzeRequestV2(
+        collection=collection,
+        strategy_filter="Control",
+    ))
+    recommendation = next(
+        rec for rec in analysis.unowned_recommendations
+        if rec.name == "Lorthos, the Tidemaker"
+    )
+    assert recommendation.completion_cost_by_rarity.rare == 1
+    assert recommendation.commander_wildcard_required
+
+    unowned_variants = build(BuildRequest(
+        collection=collection,
+        commander=recommendation.name,
+        profile=recommendation.strategy_id,
+        wildcard_budget=WildcardBudget(),
+    ))
+    unowned_by_key = {
+        variant.variant_key: variant for variant in unowned_variants
+    }
+    free = unowned_by_key["free"]
+    assert free.build_status == "unavailable"
+    assert not free.commander_owned
+    assert free.commander_wildcard_cost == "rare"
+    assert (
+        free.wildcard_cost
+        == recommendation.completion_cost_by_rarity.model_dump()
+    )
+
+    optimized = unowned_by_key["optimized"]
+    assert optimized.build_status in {"complete", "role_relaxed"}
+    assert (
+        optimized.wildcard_cost
+        == recommendation.completion_cost_by_rarity.model_dump()
+    )
+
+    owned_collection = [
+        *collection,
+        {"name": "  lORTHOS,   the Tidemaker  ", "count": 1},
+    ]
+    owned_analysis = analyze_v2(AnalyzeRequestV2(
+        collection=owned_collection,
+        strategy_filter="Control",
+    ))
+    owned_recommendation = next(
+        rec for rec in owned_analysis.owned_recommendations
+        if rec.name == "Lorthos, the Tidemaker"
+    )
+    owned_variants = build(BuildRequest(
+        collection=owned_collection,
+        commander=owned_recommendation.name,
+        profile=owned_recommendation.strategy_id,
+        wildcard_budget=WildcardBudget(
+            common=0, uncommon=0, rare=0, mythic=0
+        ),
+    ))
+    owned_free = next(
+        variant for variant in owned_variants
+        if variant.variant_key == "free"
+    )
+    assert owned_free.build_status in {"complete", "role_relaxed"}
+    assert owned_free.commander_owned
+    assert owned_free.commander_wildcard_cost is None
+    assert (
+        owned_free.wildcard_cost
+        == owned_recommendation.completion_cost_by_rarity.model_dump()
+    )

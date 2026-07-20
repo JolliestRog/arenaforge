@@ -90,6 +90,9 @@ export default function DeckView({ variant, onBack, onViewGuide }: Props) {
   const totalWildcardsNeeded = wc.common + wc.uncommon + wc.rare + wc.mythic;
   // Cards that actually need wildcards (excludes free basics where wildcardCost is null)
   const cardsNeedingWildcards = notOwned.filter(c => c.wildcardCost != null);
+  const commanderNeedsWildcard = (
+    !variant.commanderOwned && variant.commanderWildcardCost !== null
+  );
 
   function handleHover(name: string | null, e?: React.MouseEvent) {
     setTooltip(name && e ? { name, x: e.clientX, y: e.clientY } : null);
@@ -143,7 +146,7 @@ export default function DeckView({ variant, onBack, onViewGuide }: Props) {
           <div className="card-section">
             <h3>Commander (1)</h3>
             <div
-              className="card-line owned"
+              className={`card-line ${variant.commanderOwned ? '' : 'not-owned'}`}
               onMouseEnter={e => handleHover(variant.commander.name, e)}
               onMouseLeave={() => handleHover(null)}
             >
@@ -151,6 +154,11 @@ export default function DeckView({ variant, onBack, onViewGuide }: Props) {
               <span className="card-mv">{variant.commander.mv}</span>
               <span className="card-name">{variant.commander.name}</span>
               <span className="card-roles">{variant.commander.roles.slice(0, 2).join(' · ')}</span>
+              {!variant.commanderOwned && variant.commanderWildcardCost && (
+                <span className="wc-needed">
+                  {variant.commanderWildcardCost[0].toUpperCase()}
+                </span>
+              )}
             </div>
           </div>
 
@@ -243,10 +251,19 @@ export default function DeckView({ variant, onBack, onViewGuide }: Props) {
 
           <section className="analysis-section">
             <h3>Cards Requiring Wildcards</h3>
-            {cardsNeedingWildcards.length === 0 ? (
+            {!commanderNeedsWildcard && cardsNeedingWildcards.length === 0 ? (
               <p className="muted">All cards are in your collection!</p>
             ) : (
               <div className="not-owned-list">
+                {commanderNeedsWildcard && (
+                  <div className="not-owned-row">
+                    <RarityDot rarity={variant.commander.rarity} />
+                    <span>{variant.commander.name} (commander)</span>
+                    <span className="wc-needed">
+                      {variant.commanderWildcardCost}
+                    </span>
+                  </div>
+                )}
                 {cardsNeedingWildcards.map(dc => (
                   <div key={dc.card.name} className="not-owned-row">
                     <RarityDot rarity={dc.card.rarity} />
