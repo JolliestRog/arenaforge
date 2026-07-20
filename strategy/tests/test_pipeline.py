@@ -1,7 +1,7 @@
 """End-to-end tests for the ArenaForge strategy pipeline.
 
-The suite builds a fresh strategy DB into a temp path once per session using
-the sibling ``backend/data`` snapshot, then queries it.
+The suite builds a fresh strategy DB from a compact deterministic snapshot.
+It never depends on ignored runtime databases or network access.
 """
 
 from __future__ import annotations
@@ -12,19 +12,26 @@ from pathlib import Path
 
 import pytest
 
+from ci_fixtures.cards import write_snapshot
 from strategy.migrate import connect
 from strategy.pipeline.classify import classify_commander
 from strategy.rules.templates import get_template
-from strategy.run import BACKEND_DATA, DEFAULT_JSON, DEFAULT_CARDS_DB, run_pipeline
+from strategy.run import run_pipeline
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(scope="session")
-def built_db(tmp_path_factory) -> Path:
+def card_snapshot(tmp_path_factory) -> Path:
+    return write_snapshot(tmp_path_factory.mktemp("cards") / "cards.json")
+
+
+@pytest.fixture(scope="session")
+def built_db(tmp_path_factory, card_snapshot: Path) -> Path:
     db = tmp_path_factory.mktemp("strategy") / "strategy.db"
-    source = "json" if DEFAULT_JSON.exists() else "db"
-    run_pipeline(db, do_reset=True, source=source)
+    run_pipeline(
+        db, do_reset=True, source="json", scryfall_json=card_snapshot,
+    )
     return db
 
 
@@ -137,12 +144,13 @@ def test_displayed_strategies_have_evidence(conn):
         )
 
 
-def test_determinism(conn, tmp_path):
+def test_determinism(conn, tmp_path, card_snapshot):
     """Rebuild the DB with identical inputs and confirm weights match."""
     a = conn
     b_path = tmp_path / "rebuild.db"
-    source = "json" if DEFAULT_JSON.exists() else "db"
-    run_pipeline(b_path, do_reset=True, source=source)
+    run_pipeline(
+        b_path, do_reset=True, source="json", scryfall_json=card_snapshot,
+    )
     b = connect(b_path)
 
     query = (
@@ -169,8 +177,7 @@ def test_candidate_cards_are_legal_and_in_color(conn):
         " JOIN cards card ON card.oracle_id = csc.card_oracle_id"
         " LIMIT 5000"
     ).fetchall()
-    if not rows:
-        pytest.skip("no card weights present")
+    assert rows, "deterministic fixture produced no card weights"
     for r in rows:
         assert r["legal"] == 1
         cmd_colors = set(json.loads(r["cmd_colors"] or "[]"))
@@ -188,8 +195,7 @@ def test_each_commander_has_reasonable_strategy_count(conn):
         " WHERE status IN ('recommended', 'viable')"
         " GROUP BY commander_oracle_id"
     ).fetchall()
-    if not rows:
-        pytest.skip("no accepted strategies")
+    assert rows, "deterministic fixture produced no accepted strategies"
     counts = [r["n"] for r in rows]
     # Some commanders will have zero accepted strategies (bare-vanilla legends).
     # The requirement covers commanders that DO produce output.

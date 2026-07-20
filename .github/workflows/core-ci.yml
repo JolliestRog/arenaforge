@@ -1,0 +1,93 @@
+name: Core CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+
+      - name: Run required clean-clone regressions
+        run: python -m pytest backend/tests -m "not live_data" --strict-markers -q
+
+  strategy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: strategy/requirements-dev.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r strategy/requirements-dev.txt
+
+      - name: Build and test the deterministic strategy database
+        run: python -m pytest strategy/tests --strict-markers -q
+
+  backend-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build --file backend/Dockerfile backend

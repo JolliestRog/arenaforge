@@ -1,8 +1,8 @@
 """Shared fixtures for backend tests.
 
-The tests run against the real cards.db and strategy.db on the host path.
-All tests that need the DBs are skipped if either DB is absent (e.g., CI without
-the data volume mounted).
+Required CI tests build deterministic databases in temporary directories.
+Tests marked ``live_data`` retain broader coverage against the ignored VPS
+snapshots and request this fixture explicitly.
 """
 
 from __future__ import annotations
@@ -26,11 +26,11 @@ _STRAT_CANDIDATES = [
 STRATEGY_DB = next((p for p in _STRAT_CANDIDATES if p.exists()), _STRAT_CANDIDATES[0])
 
 
-@pytest.fixture(scope="session", autouse=True)
-def init_databases():
+@pytest.fixture(scope="session")
+def live_databases():
     """Initialize the global DB connections used by the backend modules."""
     if not CARDS_DB.exists() or not STRATEGY_DB.exists():
-        pytest.skip("cards.db or strategy.db not found — skipping integration tests")
+        pytest.skip("optional live cards.db or strategy.db is unavailable")
 
     import db
     import strategy_db
